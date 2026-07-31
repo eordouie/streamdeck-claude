@@ -1,12 +1,13 @@
 /** Which terminal application hosts a Claude Code session. Stamped once at
  *  SessionStart by the hook (from $TERM_PROGRAM) and used to pick the focus
  *  strategy when a slot key is pressed. */
-export type TerminalKind = "vscode" | "warp" | "iterm" | "other" | "unknown";
+export type TerminalKind = "vscode" | "warp" | "iterm" | "ghostty" | "other" | "unknown";
 
 const KINDS: ReadonlySet<TerminalKind> = new Set([
   "vscode",
   "warp",
   "iterm",
+  "ghostty",
   "other",
 ]);
 

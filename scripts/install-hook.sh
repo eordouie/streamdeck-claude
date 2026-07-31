@@ -44,8 +44,14 @@ done
 case "$TARGET" in
   wsl)
     # "wsl" is the historical name; this branch also covers macOS native, since
-    # both write to $HOME/.claude/settings.json with the POSIX hook.
-    SETTINGS_PATH="${HOME}/.claude/settings.json"
+    # both use the POSIX hook. On macOS the hooks land in settings.local.json:
+    # settings.json is commonly a dotfiles symlink synced to machines that
+    # don't run the Stream Deck app, and these entries must stay machine-local.
+    if [ "$(uname -s)" = "Darwin" ]; then
+      SETTINGS_PATH="${HOME}/.claude/settings.local.json"
+    else
+      SETTINGS_PATH="${HOME}/.claude/settings.json"
+    fi
     HOOK_CMD="${ROOT}/hooks/notification.sh"
     if [ ! -x "$HOOK_CMD" ]; then
       chmod +x "$HOOK_CMD"

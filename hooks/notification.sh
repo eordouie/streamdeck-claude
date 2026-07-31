@@ -53,6 +53,8 @@ if [ "$EVENT" = "SessionStart" ]; then
     TERM_KIND="warp"
   elif [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then
     TERM_KIND="iterm"
+  elif [ "${TERM_PROGRAM:-}" = "ghostty" ]; then
+    TERM_KIND="ghostty"
   else
     TERM_KIND="other"
   fi

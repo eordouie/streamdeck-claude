@@ -7,6 +7,7 @@ test("normaliseTerm maps canonical hook values to kinds", () => {
     ["vscode", "vscode"],
     ["warp", "warp"],
     ["iterm", "iterm"],
+    ["ghostty", "ghostty"],
     ["other", "other"],
   ];
   for (const [input, expected] of cases) {
