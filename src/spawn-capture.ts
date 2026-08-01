@@ -15,6 +15,8 @@ export interface CaptureOptions {
   timeoutMs?: number;
   /** Payload written to the child's stdin and closed. */
   stdin?: string;
+  /** Working directory for the child. */
+  cwd?: string;
 }
 
 /**
@@ -30,7 +32,7 @@ export function spawnCapture(
 ): Promise<CaptureResult> {
   return new Promise((resolve) => {
     const stdinMode = opts.stdin !== undefined ? "pipe" : "ignore";
-    const child = spawn(cmd, [...args], { stdio: [stdinMode, "pipe", "pipe"] });
+    const child = spawn(cmd, [...args], { stdio: [stdinMode, "pipe", "pipe"], cwd: opts.cwd });
     let stdout = "";
     let stderr = "";
     let timedOut = false;

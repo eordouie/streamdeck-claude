@@ -47,7 +47,7 @@ export async function renderAll(
     // sessions match by title and never use the ordinal; bg agents and
     // finished carry-overs have no tab at all.
     const isUntitledTab = (e: typeof entry) =>
-      e !== undefined && e.session.kind !== "bg" && e.state !== "finished" && !e.session.hasTitle;
+      e !== undefined && e.session.kind !== "bg" && e.state !== "finished" && !e.session.title;
     slotState.tabCount = entries.filter(isUntitledTab).length;
     slotState.tabOrdinal = isUntitledTab(entry)
       ? entries.slice(0, slotIndex - 1).filter(isUntitledTab).length

@@ -66,35 +66,3 @@ export async function readSessionTitle(path: string): Promise<string> {
   return title;
 }
 
-/** Words that carry no meaning on a 12-char key label — covers both title
- *  prose and chat-prompt filler (the label also feeds off raw prompts). */
-const STOPWORDS = new Set([
-  "a", "an", "the", "and", "or", "of", "to", "in", "on", "for", "with",
-  "from", "into", "onto", "via", "by", "at", "as", "is", "are", "be",
-  "set", "setup", "up", "make", "add", "get", "fix", "use", "using",
-  "new", "how", "what", "why", "when", "claude", "code", "session",
-  "i", "you", "it", "we", "me", "my", "your", "this", "that", "these",
-  "those", "them", "they", "there", "then", "now", "also", "just",
-  "please", "can", "cant", "could", "should", "would", "will", "wont",
-  "do", "does", "dont", "did", "want", "like", "need", "one", "same",
-  "all", "any", "some", "instead", "change", "changes", "changed",
-  "not", "no", "yes", "ok", "okay", "too", "very", "more", "less",
-]);
-const MAX_LABEL_CHARS = 24;
-
-/** Compress a session title to its two most significant leading words (the
- *  key's top line marquees when wide, so width only vetoes absurd pairs).
- *  Falls back to the raw words when everything was a stopword. */
-export function labelFromTitle(title: string): string {
-  const words = title.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "";
-  const strip = (w: string) => w.replace(/[^\p{L}\p{N}-]/gu, "");
-  const significant = words.filter((w) => {
-    const s = strip(w).toLowerCase();
-    return s.length > 1 && !STOPWORDS.has(s);
-  });
-  const pool = (significant.length > 0 ? significant : words).map(strip).filter(Boolean);
-  if (pool.length === 0) return "";
-  const pair = pool.slice(0, 2).join(" ");
-  return pair.length > MAX_LABEL_CHARS ? pool[0] : pair;
-}

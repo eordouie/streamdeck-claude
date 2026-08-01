@@ -4,7 +4,8 @@ import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
 import type { SessionState } from "./icons/index.js";
 import type { TerminalKind } from "./terminal-kind.js";
-import { derivedTranscriptPath, labelFromTitle, readSessionTitle } from "./transcript-title.js";
+import { derivedTranscriptPath, readSessionTitle } from "./transcript-title.js";
+import { assignedName, maybeName, NAMER_CWD } from "./deck-namer.js";
 import { WIN_SESSIONS_DIR, WSL_SESSIONS_DIR, WSL_SESSIONS_DIR_FROM_WIN } from "./env.js";
 import { parseEventLog, reduceEvents, type DerivedState, type TodoStatus } from "./session-events.js";
 
@@ -97,10 +98,13 @@ export interface SessionInfo {
   terminal: TerminalKind;
   /** Transcript path (from the event-log SessionStart stamp); "" when unknown. */
   transcriptPath: string;
-  /** True when the session has a generated/custom title — its tab is named
-   *  after it, so slot-press focus matches by title. Untitled sessions' tabs
-   *  all read "Claude Code" and are matched by ordinal instead. */
-  hasTitle: boolean;
+  /** The session's generated/custom title ("" when none yet). Its tab is
+   *  named after it, so slot-press focus matches titled sessions by title;
+   *  untitled tabs all read "Claude Code" and fall back to tty/ordinal. Also
+   *  part of the one-time deck-name context. */
+  title: string;
+  /** First substantial prompt (from the event log) — deck-name context. */
+  firstPrompt: string;
   /** "interactive" par défaut si le json n'a pas de champ `kind`. */
   kind: "interactive" | "bg";
   /** Statut brut NON coercé du json pour les bg (ex. "waiting", "running"). undefined pour interactive ; à ne pas confondre avec rawStatus (coercé "busy"|"idle", inutilisé pour les bg). */
@@ -152,6 +156,10 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
         } catch {
           return;
         }
+        // The deck-namer's own headless sessions run from a sentinel cwd —
+        // showing them would flash slots and recursively trigger naming.
+        if (raw.cwd === NAMER_CWD) return;
+
         const status = raw.status === "busy" ? "busy" : "idle";
         const kind: "interactive" | "bg" = raw.kind === "bg" ? "bg" : "interactive";
 
@@ -184,14 +192,10 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           }
         }
 
-        // Key label: the CURRENT discussion first (from the latest substantial
-        // prompt — tracks topic changes live), then Claude's aiTitle/customTitle
-        // (customTitle = an explicit rename, so deliberate names still surface),
-        // then the session-json name, then the cwd basename. raw.name is NOT
-        // user intent — Claude Code auto-fills it ("projects-61"), and letting
-        // it win is exactly what kept every key captioned with the project.
-        // The title is read unconditionally (stat-cached) because titled-ness
-        // also decides the slot-press focus strategy (title vs ordinal match).
+        // The title is read unconditionally (stat-cached): titled-ness decides
+        // the slot-press focus strategy, and the title is deck-name context.
+        // The label here is only the interim placeholder — readAllSessions
+        // overwrites it with the one-time deck name once one is assigned.
         let title = "";
         if (kind !== "bg") {
           const transcriptPath =
@@ -203,8 +207,9 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           pid: raw.pid,
           sessionId: raw.sessionId,
           cwd: raw.cwd,
-          label: derived.promptLabel || labelFromTitle(title) || raw.name?.trim() || basename(raw.cwd),
-          hasTitle: title !== "",
+          label: basename(raw.cwd),
+          title,
+          firstPrompt: derived.firstPrompt,
           startedAt: typeof raw.startedAt === "number" ? raw.startedAt : 0,
           rawStatus: status,
           kind,
@@ -233,6 +238,20 @@ export async function readAllSessions(): Promise<SessionInfo[]> {
   lastReadError = undefined;
   const results = await Promise.all(SESSION_SOURCES.map(readOneSource));
   const sessions = results.flat();
+
+  // Deck names: apply each session's one-time word as its label; sessions
+  // that have context but no word yet get a (deduped, fire-and-forget)
+  // naming call. The word never changes once assigned.
+  const words = await Promise.all(sessions.map((s) => assignedName(s.sessionId)));
+  const taken = words.filter(Boolean);
+  sessions.forEach((s, i) => {
+    if (s.kind === "bg") return;
+    if (words[i]) {
+      s.label = words[i];
+    } else {
+      maybeName({ sessionId: s.sessionId, firstPrompt: s.firstPrompt, title: s.title, takenWords: taken });
+    }
+  });
   // Prune cache entries whose session is gone (SessionEnd unlinked the log, or
   // the .json disappeared) so the maps stay bounded by live-session count.
   const expectedLogs = new Set<string>();

@@ -44,15 +44,15 @@ test("absent transcript defaults to empty string", () => {
   assert.equal(reduceEvents(parseEventLog(log)).transcriptPath, "");
 });
 
-test("substantial prompts move promptLabel; trivial ones keep it", () => {
+test("firstPrompt captures the first substantial prompt and stays fixed", () => {
   const log = [
     { ts: 1, event: "SessionStart", term: "ghostty" },
-    { ts: 2, event: "UserPromptSubmit", prompt: "brutally audit the mirror optimizer sweep" },
-    { ts: 3, event: "Stop" },
-    { ts: 4, event: "UserPromptSubmit", prompt: "continue" },
-    { ts: 5, event: "Stop" },
+    { ts: 2, event: "UserPromptSubmit", prompt: "hi" },
+    { ts: 3, event: "UserPromptSubmit", prompt: "brutally audit the mirror optimizer sweep" },
+    { ts: 4, event: "Stop" },
+    { ts: 5, event: "UserPromptSubmit", prompt: "now refactor the tolerance budget tab" },
   ]
     .map((e) => JSON.stringify(e))
     .join("\n");
-  assert.equal(reduceEvents(parseEventLog(log)).promptLabel, "brutally audit");
+  assert.equal(reduceEvents(parseEventLog(log)).firstPrompt, "brutally audit the mirror optimizer sweep");
 });

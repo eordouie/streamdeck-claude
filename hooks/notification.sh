@@ -29,9 +29,9 @@ fi
 mkdir -p "$SESSIONS_DIR"
 TARGET="${SESSIONS_DIR}/${SESSION_ID}.events.ndjson"
 
-# SessionEnd: drop the log entirely, no need to record anything.
+# SessionEnd: drop the log and the one-time deck-name sidecar.
 if [ "$EVENT" = "SessionEnd" ]; then
-  rm -f "$TARGET"
+  rm -f "$TARGET" "${SESSIONS_DIR}/${SESSION_ID}.deckname"
   echo '{}'
   exit 0
 fi

@@ -5,7 +5,6 @@
  *  drop/rm pairs. Adding a new state = one case in `applyEvent`. */
 
 import { normaliseTerm, type TerminalKind } from "./terminal-kind.js";
-import { labelFromTitle } from "./transcript-title.js";
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
 const VALID_TODO_STATUS: ReadonlySet<TodoStatus> = new Set(["pending", "in_progress", "completed"]);
@@ -51,10 +50,9 @@ export interface DerivedState {
   /** Transcript path (from the SessionStart hook stamp); "" when unknown.
    *  Used to look up the session's title for tab-level focus. */
   transcriptPath: string;
-  /** Key label derived from the most recent SUBSTANTIAL prompt (≥3 words
-   *  with at least one significant one) — tracks the current discussion,
-   *  unlike Claude's once-generated aiTitle. "" until such a prompt lands. */
-  promptLabel: string;
+  /** The FIRST substantial prompt (≥3 words) of the session, clipped by the
+   *  hook — context for the one-time deck-name pick. "" until one lands. */
+  firstPrompt: string;
 }
 
 /** Internal accumulator: same as DerivedState plus `inTurn`, which is true
@@ -66,7 +64,7 @@ interface ReducerState extends DerivedState {
   inTurn: boolean;
 }
 
-const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "", promptLabel: "", inTurn: false };
+const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "", firstPrompt: "", inTurn: false };
 
 export function reduceEvents(events: readonly SessionEvent[]): DerivedState {
   let state = ZERO;
@@ -90,11 +88,10 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
       // subagent killed or a hook that didn't fire — from leaking across the
       // turn boundary and stranding the session on the "subagent" icon.
       const next = { ...state, inTurn: true, awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0 };
-      // Trivial prompts ("continue", "done", "yes go ahead") keep the prior
-      // label — only a substantial prompt moves the discussion topic.
-      if (ev.prompt !== undefined && ev.prompt.trim().split(/\s+/).length >= 3) {
-        const label = labelFromTitle(ev.prompt);
-        if (label) next.promptLabel = label;
+      // Capture the FIRST substantial prompt only — trivial openers
+      // ("continue", "hi") don't count as naming context.
+      if (!state.firstPrompt && ev.prompt !== undefined && ev.prompt.trim().split(/\s+/).length >= 3) {
+        next.firstPrompt = ev.prompt.trim();
       }
       return next;
     }
