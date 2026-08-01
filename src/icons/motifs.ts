@@ -97,7 +97,7 @@ export function clawdIdleLook(frame: number, _color: string): string {
   const blinking = Date.now() % BLINK_PERIOD_MS < BLINK_CLOSED_MS;
   const eyeScaleY = blinking ? "0.1" : "1";
   const c = "#DE886D";
-  return `<g transform="translate(42 16) scale(4)">
+  return `<g transform="translate(42 22) scale(4)">
 <rect x="3" y="15" width="9" height="1" fill="#000" opacity="0.45"/>
 <rect x="3" y="12" width="1" height="3" fill="${c}"/>
 <rect x="5" y="12" width="1" height="3" fill="${c}"/>
@@ -160,7 +160,7 @@ function dinoIdleLook(frame: number, blinkPhaseMs: number): string {
     ? `<rect x="7" y="9" width="2" height="4" fill="${c}"/><rect x="8" y="12" width="3" height="1" fill="${c}"/>`
     : `<rect x="7" y="9" width="2" height="5" fill="${c}"/><rect x="7" y="13" width="3" height="1" fill="${c}"/>`;
   const bob = stepA ? "0" : "-0.5";
-  return `<g transform="translate(46 26) scale(4)">
+  return `<g transform="translate(46 32) scale(4)">
 <rect x="2" y="15" width="9" height="1" fill="#000" opacity="0.45"/>
 ${legL}
 ${legR}
@@ -204,7 +204,7 @@ function sauropodIdleLook(frame: number, blinkPhaseMs: number): string {
     : `<rect x="9" y="11" width="2" height="4" fill="${c}"/>`;
   const tailTipY = stepA ? 6 : 5;
   const bob = stepA ? "0" : "-0.5";
-  return `<g transform="translate(42 26) scale(4)">
+  return `<g transform="translate(42 32) scale(4)">
 <rect x="2" y="15" width="11" height="1" fill="#000" opacity="0.45"/>
 ${legF}
 ${legB}
@@ -236,7 +236,7 @@ function llamaIdleLook(frame: number, blinkPhaseMs: number): string {
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
   const c = "#ecd9b0";
   const shade = "#c8a165";
-  return `<g transform="translate(46 26) scale(4)">
+  return `<g transform="translate(46 32) scale(4)">
 <rect x="1" y="15" width="12" height="1" fill="#000" opacity="0.45"/>
 <rect x="2" y="9" width="10" height="4" fill="${c}"/>
 <rect x="11" y="8" width="2" height="2" fill="${c}"/>
@@ -266,7 +266,7 @@ function chimpIdleLook(frame: number, blinkPhaseMs: number): string {
   const fur = "#4a3527";
   const face = "#e0b98d";
   const mouth = "#8c5f3f";
-  return `<g transform="translate(46 28) scale(4)">
+  return `<g transform="translate(46 34) scale(4)">
 <rect x="2" y="13" width="9" height="1" fill="#000" opacity="0.45"/>
 <g transform="translate(6.5 12) scale(1 ${breatheY}) translate(-6.5 -12)">
 <rect x="4" y="0" width="1" height="1" fill="${fur}"/>
