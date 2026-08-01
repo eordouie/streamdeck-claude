@@ -103,3 +103,28 @@ The Windows hook is **not copied** — `install-hook.sh --target=windows` regist
 - The Setup action's key press (and its property inspector "Refresh States" button) calls `refreshNow()` in `plugin.ts`, which `wipeAllEventLogs()` (deletes every `<sid>.events.ndjson` across both source dirs) then runs an immediate `runSlowTick()`. The PI uses raw WebSocket against the Elgato bridge (`connectElgatoStreamDeckSocket`) — the SDK's TS API is plugin-side only.
 - Background context for Stream Deck plugin development inside WSL lives in the local skill `streamdeck-plugin-wsl` (`.claude/skills/`); session-introspection internals (the `<pid>.json` schema, dual-namespace liveness, hook patterns) are in `claude-code-process-introspection`. Invoke them via the `Skill` tool when relevant.
 - `docs/` holds reference notes (`architecture.md`, `development.md`, `warp-focus*.md`, `vscode-focus.md`). `docs/code-refacto.md` specifically is an audit doc, not authoritative — treat as a record of considered ideas, not a TODO list.
+
+## Fork notes (eordouie / ghostty-focus)
+
+This checkout is Ehsan's fork (`origin` = eordouie/streamdeck-claude,
+`upstream` = JulienCr). Branch `ghostty-focus` (based on upstream's
+`feat/vscode-terminal-focus`) adds, relative to upstream:
+
+- **ghostty terminal kind** — hook stamps `TERM_PROGRAM=ghostty`;
+  `ghostty-focus(-mac).ts` AXRaises the best title-matched tab (native tab
+  = AXWindow) and, for stamped-ghostty sessions only, activates the app via
+  `open -b` when no title matches.
+- **`com.julien.claudesessions.command`** (`src/command-action.ts`) — a
+  command key whose `{label, script, args, color}` settings are baked into
+  the profile; press spawns the script. Exists because Elgato's built-in
+  Text/Hotkey/Multi Action settings are a private schema (see LESSONS.md).
+- **macOS hook install target** — `install-hook.sh` writes
+  `~/.claude/settings.local.json` on Darwin (settings.json is a synced
+  dotfiles symlink); `hook-check.ts` / `check-hooks.sh` accept either file.
+
+The deck layout itself does NOT live here — keys are declared in
+`~/Projects/dotfiles/streamdeck/layout.toml` and applied with
+`apply-layout.sh` (quit app → regenerate page manifest → relaunch); the
+key-press behaviors are `dotfiles/streamdeck/scripts/*.sh`. Keep personal
+layout/config out of this repo so the diff against upstream stays
+upstreamable. Operating gotchas: `LESSONS.md` at the repo root.
