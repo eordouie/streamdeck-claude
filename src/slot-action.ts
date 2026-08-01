@@ -175,8 +175,9 @@ export class SlotAction extends SingletonAction {
         transcriptPath: slot?.transcriptPath,
         sessionId: slot?.sessionId,
       });
+      // No showOk here: landing on the tab (and the flash clearing) IS the
+      // feedback — the green checkmark overlay just adds noise.
       streamDeck.logger.info(`focus(${slot?.terminal ?? "unknown"}): ${res.reason} for cwd=${cwd}`);
-      await ev.action.showOk();
     } catch (err) {
       streamDeck.logger.error("clipboard copy failed", err);
       await ev.action.showAlert();
