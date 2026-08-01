@@ -36,6 +36,9 @@ export interface IconOptions {
    *  last engaged it): flash the tile until the key is pressed or the session
    *  gets a new prompt. */
   attention?: boolean;
+  /** Owes the user a reply but the flash is snoozed (the key was pressed):
+   *  draw a quiet corner dot so a glance still shows the debt. */
+  awaitingReply?: boolean;
 }
 
 // Left-edge progress column geometry. The column sits at x=2..7, outside the
@@ -81,7 +84,7 @@ function renderBgBadge(accent: string): string {
   return `<text x="16" y="22" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" font-weight="700" fill="${accent}" opacity="0.8" text-anchor="start">bg</text>`;
 }
 
-export function renderIcon({ state, slot, label, frame = 0, now, todos, attention }: IconOptions): string {
+export function renderIcon({ state, slot, label, frame = 0, now, todos, attention, awaitingReply }: IconOptions): string {
   const t = now ?? Date.now();
   const { bg, accent, label: labelColor } = STATES[state].palette;
   const flash = attention === true;
@@ -146,11 +149,21 @@ export function renderIcon({ state, slot, label, frame = 0, now, todos, attentio
 
   const todoColumn = todos && todos.length > 0 ? renderTodoColumn(todos, frame) : "";
 
+  // Snoozed-but-unanswered marker: a small solid dot where the slot number
+  // used to sit. Silent, but a glance across the deck still shows which
+  // sessions are owed a reply.
+  const owedDot =
+    awaitingReply === true && !flash
+      ? `<circle cx="126" cy="18" r="6.5" fill="#0b0d12" opacity="0.55"/>` +
+        `<circle cx="126" cy="18" r="5" fill="#ffffff"/>`
+      : "";
+
   return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
 <rect width="144" height="144" fill="${bg}"/>
 ${pulseOverlay}
 <rect x="${BORDER_INSET}" y="${BORDER_INSET}" width="${BORDER_SIZE}" height="${BORDER_SIZE}" rx="${BORDER_RADIUS}" fill="none" stroke="${borderStroke}" stroke-width="${BORDER_STROKE}" stroke-linejoin="round" opacity="${isEmpty ? "0.45" : "0.95"}"/>
 ${bgBadge}
+${owedDot}
 ${topLine}
 <g transform="translate(0,${MOTIF_DY})">${STATES[state].motif(frame, accent, slot)}</g>
 ${line1Svg}

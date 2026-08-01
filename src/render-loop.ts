@@ -32,7 +32,15 @@ export async function renderAll(
     const useFrame = animateFrame ? frame : 0;
 
     const svg = entry
-      ? renderIcon({ state, slot: slotIndex, label, frame: useFrame, todos, attention: entry.attention })
+      ? renderIcon({
+          state,
+          slot: slotIndex,
+          label,
+          frame: useFrame,
+          todos,
+          attention: entry.attention,
+          awaitingReply: entry.awaitingReply,
+        })
       : renderIcon({ state: "empty", slot: slotIndex, label: "", frame: 0 });
     const dataUrl = "data:image/svg+xml;base64," + Buffer.from(svg, "utf8").toString("base64");
 

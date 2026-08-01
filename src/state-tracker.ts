@@ -28,14 +28,23 @@ const ATTENTION_STATES: ReadonlySet<SessionState> = new Set([
   "bg_awaiting_permission",
 ]);
 
+/** How long a pressed-but-still-unanswered session stays quiet before the key
+ *  starts flashing again. Long enough to read and think in the tab, short
+ *  enough that a session you wandered away from can't be forgotten. */
+const RENAG_AFTER_MS = 180_000;
+
 export interface DisplayEntry {
   session: SessionInfo;
   state: SessionState;
   /** When state became "finished"; used to expire the entry after FINISHED_TTL_MS. */
   finishedAt?: number;
-  /** Busy → needs-you transition not yet acknowledged — drives the key flash.
-   *  Cleared by a slot press or by the session going busy again (new prompt). */
+  /** Busy → needs-you transition, unacknowledged — the key flashes. A press
+   *  snoozes it; it re-arms after RENAG_AFTER_MS if still unanswered. Only a
+   *  reply (session goes busy) clears it for good. */
   attention?: boolean;
+  /** Still owes the user a reply, but currently snoozed — the key shows a
+   *  quiet persistent dot instead of flashing. */
+  awaitingReply?: boolean;
 }
 
 /**
@@ -52,8 +61,10 @@ export function createStateTracker() {
   let cachedEntries: DisplayEntry[] = [];
   /** Last displayed state per live session — used to detect busy → needs-you transitions. */
   const prevStates = new Map<string, SessionState>();
-  /** Sessions flashing for attention, keyed by sessionId. */
-  const attention = new Set<string>();
+  /** Sessions that owe the user a reply, keyed by sessionId. `snoozedAt` is
+   *  set by a slot press: the key stops flashing but keeps a dot, and
+   *  re-arms once RENAG_AFTER_MS has passed. */
+  const owed = new Map<string, { snoozedAt?: number }>();
 
   let lastDiag = "";
   function maybeLog(msg: string): void {
@@ -87,18 +98,32 @@ export function createStateTracker() {
       .filter((s) => live.has(s.sessionId))
       .map((session) => ({ session, state: deriveState(session, true) }));
 
-    // Attention bookkeeping: arm on busy → needs-you, disarm when the session
-    // goes busy again (the user replied) — a slot press disarms via acknowledge().
+    // Attention bookkeeping. Arm on busy → needs-you. A reply (session goes
+    // busy again) is the ONLY thing that clears it — a slot press merely
+    // snoozes the flash, because looking at a session isn't answering it.
+    const now = Date.now();
     for (const e of liveEntries) {
       const sid = e.session.sessionId;
       const prev = prevStates.get(sid);
       if (prev !== undefined && BUSY_STATES.has(prev) && ATTENTION_STATES.has(e.state)) {
-        attention.add(sid);
+        if (!owed.has(sid)) owed.set(sid, {});
       } else if (BUSY_STATES.has(e.state)) {
-        attention.delete(sid);
+        owed.delete(sid);
       }
       prevStates.set(sid, e.state);
-      e.attention = attention.has(sid);
+
+      const entry = owed.get(sid);
+      if (!entry) {
+        e.attention = false;
+        e.awaitingReply = false;
+        continue;
+      }
+      // Snoozed presses re-arm once the grace period lapses.
+      if (entry.snoozedAt !== undefined && now - entry.snoozedAt >= RENAG_AFTER_MS) {
+        entry.snoozedAt = undefined;
+      }
+      e.attention = entry.snoozedAt === undefined;
+      e.awaitingReply = true;
     }
 
     // Promote a session into "finished" only if it was alive last tick and is gone now.
@@ -118,7 +143,7 @@ export function createStateTracker() {
     prevLiveIds = liveIds;
 
     // Dead sessions don't flash and don't leak bookkeeping.
-    for (const sid of attention) if (!liveIds.has(sid)) attention.delete(sid);
+    for (const sid of owed.keys()) if (!liveIds.has(sid)) owed.delete(sid);
     for (const sid of prevStates.keys()) if (!liveIds.has(sid)) prevStates.delete(sid);
 
     // Delete dead-process session files so the source dir stays bounded — left
@@ -149,9 +174,13 @@ export function createStateTracker() {
     );
   }
 
-  /** Slot press acknowledged the session — stop its attention flash now. */
+  /** Slot press: the user has SEEN this session, which is not the same as
+   *  having answered it. Snooze the flash and keep the dot; the flash returns
+   *  after RENAG_AFTER_MS unless the session goes busy in the meantime. */
   function acknowledge(sessionId: string): void {
-    attention.delete(sessionId);
+    const entry = owed.get(sessionId);
+    if (!entry) return;
+    entry.snoozedAt = Date.now();
     for (const e of cachedEntries) {
       if (e.session.sessionId === sessionId) e.attention = false;
     }
