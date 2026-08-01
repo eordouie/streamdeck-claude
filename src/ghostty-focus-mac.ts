@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
+import { derivedTranscriptPath, lastJsonString } from "./transcript-title.js";
 import type { SessionOrigin } from "./sessions.js";
 import type { FocusResult } from "./terminal-focus.js";
 import type { GhosttyFocusOpts } from "./ghostty-focus.js";
@@ -94,26 +93,6 @@ async function sessionTitle(
     if (title) return title;
   }
   return "";
-}
-
-/** Claude Code's project-dir encoding: every non-alphanumeric cwd character
- *  becomes "-" (so `/Users/x/Projects` → `-Users-x-Projects`). */
-function derivedTranscriptPath(cwd: string, sessionId: string): string {
-  const enc = cwd.replace(/[^a-zA-Z0-9]/g, "-");
-  return join(homedir(), ".claude", "projects", enc, `${sessionId}.jsonl`);
-}
-
-/** Last occurrence of `"key":"<value>"` in raw JSONL, JSON-unescaped. */
-function lastJsonString(text: string, key: string): string {
-  const re = new RegExp(`"${key}":"((?:[^"\\\\]|\\\\.)*)"`, "g");
-  let last = "";
-  for (const m of text.matchAll(re)) last = m[1];
-  if (!last) return "";
-  try {
-    return JSON.parse(`"${last}"`) as string;
-  } catch {
-    return "";
-  }
 }
 
 /** Click the Window-menu item whose name ends with `title` (tab names carry a

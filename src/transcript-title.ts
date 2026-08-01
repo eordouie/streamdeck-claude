@@ -1,0 +1,97 @@
+import { open, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+/** Last occurrence of `"key":"<value>"` in raw JSONL, JSON-unescaped. */
+export function lastJsonString(text: string, key: string): string {
+  const re = new RegExp(`"${key}":"((?:[^"\\\\]|\\\\.)*)"`, "g");
+  let last = "";
+  for (const m of text.matchAll(re)) last = m[1];
+  if (!last) return "";
+  try {
+    return JSON.parse(`"${last}"`) as string;
+  } catch {
+    return "";
+  }
+}
+
+/** Claude Code's project-dir encoding: every non-alphanumeric cwd character
+ *  becomes "-" (so `/Users/x/Projects` → `-Users-x-Projects`). */
+export function derivedTranscriptPath(cwd: string, sessionId: string): string {
+  const enc = cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  return join(homedir(), ".claude", "projects", enc, `${sessionId}.jsonl`);
+}
+
+/** The session's display title: customTitle (user rename) over aiTitle (auto
+ *  topic). Bounded read — the tail chunk catches retitles, the head chunk the
+ *  first title — so ticking every second over multi-MB transcripts stays
+ *  cheap. Cached by (size, mtime). "" when the transcript has no title yet. */
+const CHUNK = 256 * 1024;
+const titleCache = new Map<string, { size: number; mtimeMs: number; title: string }>();
+
+export async function readSessionTitle(path: string): Promise<string> {
+  if (!path) return "";
+  let size: number, mtimeMs: number;
+  try {
+    const st = await stat(path);
+    size = st.size;
+    mtimeMs = st.mtimeMs;
+  } catch {
+    return "";
+  }
+  const cached = titleCache.get(path);
+  if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return cached.title;
+
+  let title = "";
+  try {
+    const fh = await open(path, "r");
+    try {
+      const tail = Buffer.alloc(Math.min(CHUNK, size));
+      await fh.read(tail, 0, tail.length, Math.max(0, size - tail.length));
+      let text = tail.toString("utf8");
+      title = lastJsonString(text, "customTitle") || lastJsonString(text, "aiTitle");
+      if (!title && size > CHUNK) {
+        const head = Buffer.alloc(CHUNK);
+        await fh.read(head, 0, head.length, 0);
+        text = head.toString("utf8");
+        title = lastJsonString(text, "customTitle") || lastJsonString(text, "aiTitle");
+      }
+    } finally {
+      await fh.close();
+    }
+  } catch {
+    return "";
+  }
+  titleCache.set(path, { size, mtimeMs, title });
+  return title;
+}
+
+/** Words that carry no meaning on a 12-char key label. */
+const STOPWORDS = new Set([
+  "a", "an", "the", "and", "or", "of", "to", "in", "on", "for", "with",
+  "from", "into", "onto", "via", "by", "at", "as", "is", "are", "be",
+  "set", "setup", "up", "make", "add", "get", "fix", "use", "using",
+  "new", "how", "what", "why", "when", "claude", "code", "session",
+]);
+const MAX_LABEL_CHARS = 12;
+
+/** Compress a session title to the fittest 1-2 words for the key's top line:
+ *  drop stopwords, then take leading words while they fit ~12 chars. Falls
+ *  back to the first raw word when everything was a stopword. */
+export function labelFromTitle(title: string): string {
+  const words = title.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "";
+  const strip = (w: string) => w.replace(/[^\p{L}\p{N}-]/gu, "");
+  const significant = words.filter((w) => {
+    const s = strip(w).toLowerCase();
+    return s.length > 1 && !STOPWORDS.has(s);
+  });
+  const pool = significant.length > 0 ? significant : words;
+  let label = strip(pool[0]);
+  for (let i = 1; i < pool.length; i++) {
+    const next = `${label} ${strip(pool[i])}`;
+    if (next.length > MAX_LABEL_CHARS) break;
+    label = next;
+  }
+  return label;
+}

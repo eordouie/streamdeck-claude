@@ -4,6 +4,7 @@ import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
 import type { SessionState } from "./icons/index.js";
 import type { TerminalKind } from "./terminal-kind.js";
+import { derivedTranscriptPath, labelFromTitle, readSessionTitle } from "./transcript-title.js";
 import { WIN_SESSIONS_DIR, WSL_SESSIONS_DIR, WSL_SESSIONS_DIR_FROM_WIN } from "./env.js";
 import { parseEventLog, reduceEvents, type DerivedState, type TodoStatus } from "./session-events.js";
 
@@ -179,11 +180,22 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           }
         }
 
+        // Key label: explicit session name wins, then the live topic (Claude's
+        // aiTitle/customTitle, compressed to 1-2 significant words), then the
+        // cwd basename. The topic matters most when every session shares one
+        // working directory and the project name stops discriminating.
+        let topicLabel = "";
+        if (kind !== "bg") {
+          const transcriptPath =
+            derived.transcriptPath || derivedTranscriptPath(raw.cwd, raw.sessionId);
+          topicLabel = labelFromTitle(await readSessionTitle(transcriptPath));
+        }
+
         out.push({
           pid: raw.pid,
           sessionId: raw.sessionId,
           cwd: raw.cwd,
-          label: raw.name?.trim() || basename(raw.cwd),
+          label: raw.name?.trim() || topicLabel || basename(raw.cwd),
           startedAt: typeof raw.startedAt === "number" ? raw.startedAt : 0,
           rawStatus: status,
           kind,
