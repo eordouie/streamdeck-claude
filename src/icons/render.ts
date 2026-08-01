@@ -160,7 +160,7 @@ ${pulseOverlay}
 ${slotBadge}
 ${bgBadge}
 ${topLine}
-<g transform="translate(0,${MOTIF_DY})">${STATES[state].motif(frame, accent)}</g>
+<g transform="translate(0,${MOTIF_DY})">${STATES[state].motif(frame, accent, slot)}</g>
 ${line1Svg}
 ${line2Svg}
 ${todoColumn}

@@ -115,6 +115,146 @@ export function clawdIdleLook(frame: number, _color: string): string {
 </g>`;
 }
 
+/** Per-slot idle mascots: each key gets its own pixel character, same life
+ *  channels as Clawd (breathe/bob on `frame`, ~150 ms blink every 4 s on
+ *  wall-clock). Blinks are phase-shifted per slot so the row doesn't blink
+ *  in unison. Native palettes — like Clawd, the characters keep their own
+ *  colors while the idle palette drives the chrome. */
+export function slotCharacterIdle(frame: number, color: string, slot?: number): string {
+  const n = Math.max(1, slot ?? 1);
+  const blinkPhaseMs = (n - 1) * 700;
+  switch ((n - 1) % 5) {
+    case 1: return dinoIdleLook(frame, blinkPhaseMs);
+    case 2: return ghostIdleLook(frame, blinkPhaseMs);
+    case 3: return llamaIdleLook(frame, blinkPhaseMs);
+    case 4: return chimpIdleLook(frame, blinkPhaseMs);
+    default: return clawdIdleLook(frame, color);
+  }
+}
+
+const blinkScaleY = (phaseMs: number): string =>
+  (Date.now() + phaseMs) % 4000 < 150 ? "0.1" : "1";
+
+/** The Chrome offline runner T-Rex, in green. Faces right; breathes from the
+ *  hips up, legs planted. */
+function dinoIdleLook(frame: number, blinkPhaseMs: number): string {
+  const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
+  const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
+  const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
+  const c = "#22c55e";
+  return `<g transform="translate(46 26) scale(4)">
+<rect x="2" y="15" width="9" height="1" fill="#000" opacity="0.45"/>
+<rect x="4" y="10" width="2" height="4" fill="${c}"/>
+<rect x="7" y="10" width="2" height="4" fill="${c}"/>
+<rect x="4" y="13" width="3" height="1" fill="${c}"/>
+<rect x="7" y="13" width="3" height="1" fill="${c}"/>
+<g transform="translate(6.5 10) scale(1 ${breatheY}) translate(-6.5 -10)">
+<rect x="0" y="4" width="2" height="2" fill="${c}"/>
+<rect x="1" y="5" width="2" height="3" fill="${c}"/>
+<rect x="3" y="5" width="6" height="5" fill="${c}"/>
+<rect x="7" y="3" width="2" height="2" fill="${c}"/>
+<rect x="6" y="0" width="7" height="3" fill="${c}"/>
+<rect x="6" y="3" width="4" height="1" fill="${c}"/>
+<rect x="8" y="6" width="2" height="1" fill="${c}"/>
+<g transform="translate(8.5 1.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-8.5 -1.5)">
+<rect x="8" y="1" width="1" height="1" fill="#000"/>
+</g>
+</g>
+</g>`;
+}
+
+/** A little white ghost — floats (translateY bob) instead of breathing, with
+ *  a wavy hem and big dark eyes. */
+function ghostIdleLook(frame: number, blinkPhaseMs: number): string {
+  const bobPhase = (frame % ANIMATION_FRAMES) / ANIMATION_FRAMES;
+  const bobTri = bobPhase < 0.5 ? bobPhase * 2 : (1 - bobPhase) * 2;
+  const bobPx = (bobTri * 3).toFixed(2);
+  const shadowOpacity = (0.45 - bobTri * 0.15).toFixed(2);
+  const c = "#f8fafc";
+  const dark = "#0f172a";
+  return `<g transform="translate(50 28) scale(4)">
+<rect x="2" y="14" width="7" height="1" fill="#000" opacity="${shadowOpacity}"/>
+<g transform="translate(0 ${bobPx}) translate(0 -1.5)">
+<rect x="3" y="0" width="5" height="1" fill="${c}"/>
+<rect x="1" y="1" width="9" height="1" fill="${c}"/>
+<rect x="0" y="2" width="11" height="8" fill="${c}"/>
+<rect x="0" y="10" width="3" height="2" fill="${c}"/>
+<rect x="4" y="10" width="3" height="1" fill="${c}"/>
+<rect x="8" y="10" width="3" height="2" fill="${c}"/>
+<g transform="translate(5.5 5.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-5.5 -5.5)">
+<rect x="2" y="4" width="2" height="3" fill="${dark}"/>
+<rect x="7" y="4" width="2" height="3" fill="${dark}"/>
+</g>
+<rect x="5" y="8" width="1" height="1" fill="${dark}"/>
+</g>
+</g>`;
+}
+
+/** A cream llama in side profile, facing left — perky ears, long neck,
+ *  fluffy tail nub. Breathes from the shoulders up. */
+function llamaIdleLook(frame: number, blinkPhaseMs: number): string {
+  const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
+  const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
+  const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
+  const c = "#ecd9b0";
+  const shade = "#c8a165";
+  return `<g transform="translate(46 26) scale(4)">
+<rect x="1" y="15" width="12" height="1" fill="#000" opacity="0.45"/>
+<rect x="2" y="9" width="10" height="4" fill="${c}"/>
+<rect x="11" y="8" width="2" height="2" fill="${c}"/>
+<rect x="3" y="13" width="1" height="2" fill="${c}"/>
+<rect x="5" y="13" width="1" height="2" fill="${c}"/>
+<rect x="8" y="13" width="1" height="2" fill="${c}"/>
+<rect x="10" y="13" width="1" height="2" fill="${c}"/>
+<g transform="translate(3 9) scale(1 ${breatheY}) translate(-3 -9)">
+<rect x="2" y="5" width="2" height="4" fill="${c}"/>
+<rect x="0" y="0" width="1" height="2" fill="${c}"/>
+<rect x="2" y="0" width="1" height="2" fill="${c}"/>
+<rect x="0" y="2" width="4" height="3" fill="${c}"/>
+<rect x="0" y="4" width="2" height="1" fill="${shade}"/>
+<g transform="translate(1.5 3.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-1.5 -3.5)">
+<rect x="1" y="3" width="1" height="1" fill="#000"/>
+</g>
+</g>
+</g>`;
+}
+
+/** A shaggy chimp, front view — fur crown spikes, big ears, tan face and
+ *  chest patch. Breathes on the whole figure above the shadow. */
+function chimpIdleLook(frame: number, blinkPhaseMs: number): string {
+  const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
+  const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
+  const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
+  const fur = "#4a3527";
+  const face = "#e0b98d";
+  const mouth = "#8c5f3f";
+  return `<g transform="translate(46 28) scale(4)">
+<rect x="2" y="14" width="9" height="1" fill="#000" opacity="0.45"/>
+<g transform="translate(6.5 12) scale(1 ${breatheY}) translate(-6.5 -12)">
+<rect x="3" y="0" width="1" height="1" fill="${fur}"/>
+<rect x="5" y="0" width="1" height="1" fill="${fur}"/>
+<rect x="7" y="0" width="1" height="1" fill="${fur}"/>
+<rect x="9" y="0" width="1" height="1" fill="${fur}"/>
+<rect x="2" y="1" width="9" height="7" fill="${fur}"/>
+<rect x="1" y="2" width="1" height="2" fill="${fur}"/>
+<rect x="11" y="2" width="1" height="2" fill="${fur}"/>
+<rect x="0" y="3" width="2" height="3" fill="${fur}"/>
+<rect x="11" y="3" width="2" height="3" fill="${fur}"/>
+<rect x="3" y="3" width="7" height="5" fill="${face}"/>
+<g transform="translate(6.5 5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-6.5 -5)">
+<rect x="4" y="4" width="1" height="2" fill="#000"/>
+<rect x="8" y="4" width="1" height="2" fill="#000"/>
+</g>
+<rect x="6" y="6" width="1" height="1" fill="${mouth}"/>
+<rect x="5" y="7" width="3" height="1" fill="${mouth}"/>
+<rect x="2" y="8" width="2" height="3" fill="${fur}"/>
+<rect x="9" y="8" width="2" height="3" fill="${fur}"/>
+<rect x="4" y="8" width="5" height="4" fill="${fur}"/>
+<rect x="5" y="9" width="3" height="2" fill="${face}"/>
+</g>
+</g>`;
+}
+
 export function finishedCheck(_frame: number, color: string): string {
   return `<circle cx="72" cy="60" r="28" fill="${color}" opacity="0.18"/>
 <circle cx="72" cy="60" r="28" fill="none" stroke="${color}" stroke-width="3.5" opacity="0.85"/>
