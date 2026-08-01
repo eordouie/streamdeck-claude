@@ -14,6 +14,9 @@ export interface GhosttyFocusOpts {
    *  for the session's customTitle/aiTitle — the exact string the tab is
    *  named — enabling a deterministic Window-menu jump. */
   transcriptPath?: string;
+  /** Session id — fallback route to the transcript (derived path) for
+   *  sessions whose event log predates the transcript stamp. */
+  sessionId?: string;
 }
 
 /**

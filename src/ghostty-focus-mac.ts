@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
 import type { SessionOrigin } from "./sessions.js";
 import type { FocusResult } from "./terminal-focus.js";
@@ -36,15 +38,23 @@ export async function focusGhosttyTabOnMac(
     return { matched: false, reason: `${reason}; ${activated ? "app-activated" : "activate-failed"}` };
   };
 
-  // Tier 1: deterministic Window-menu jump by session title.
-  const title = await sessionTitle(opts.transcriptPath);
-  if (title) {
+  // Tier 1: deterministic Window-menu jump by session title. A session with
+  // no generated topic yet is tabbed "<✳> Claude Code" — matching that
+  // default is still safe when exactly one such tab exists.
+  const title = await sessionTitle(opts.transcriptPath, cwd, opts.sessionId);
+  const target = title || "Claude Code";
+  if (!title) {
+    streamDeck.logger.info(
+      `ghostty: no session title yet (transcript=${opts.transcriptPath || "unstamped"} sid=${opts.sessionId ?? "none"}); trying unique default-title match`,
+    );
+  }
+  {
     // Activate first: raising the app is wanted on success anyway, and a
     // menu interaction on a frontmost app is the reliable path.
     await activateApp();
-    const clicked = await clickWindowMenuTab(title);
-    if (clicked.ok) return { matched: true, reason: `menu title="${title}"` };
-    streamDeck.logger.info(`ghostty menu miss (${clicked.error}) title="${title}"`);
+    const clicked = await clickWindowMenuTab(target, { requireUnique: !title });
+    if (clicked.ok) return { matched: true, reason: `menu title="${target}"` };
+    streamDeck.logger.info(`ghostty menu miss (${clicked.error}) title="${target}"`);
     // fall through to the window scan with the app already raised
   }
 
@@ -60,16 +70,36 @@ export async function focusGhosttyTabOnMac(
 }
 
 /** The session's display title: last customTitle (user rename) in the
- *  transcript, else last aiTitle (auto topic). Empty string when unknown. */
-async function sessionTitle(transcriptPath: string | undefined): Promise<string> {
-  if (!transcriptPath) return "";
-  let text: string;
-  try {
-    text = await readFile(transcriptPath, "utf8");
-  } catch {
-    return "";
+ *  transcript, else last aiTitle (auto topic). Empty string when unknown.
+ *  Prefers the hook-stamped transcript path; falls back to deriving it from
+ *  cwd + sessionId (`~/.claude/projects/<encoded-cwd>/<sid>.jsonl`) so
+ *  sessions that predate the stamp still resolve. */
+async function sessionTitle(
+  transcriptPath: string | undefined,
+  cwd: string,
+  sessionId: string | undefined,
+): Promise<string> {
+  const candidates: string[] = [];
+  if (transcriptPath) candidates.push(transcriptPath);
+  if (sessionId && cwd) candidates.push(derivedTranscriptPath(cwd, sessionId));
+  for (const path of candidates) {
+    let text: string;
+    try {
+      text = await readFile(path, "utf8");
+    } catch {
+      continue;
+    }
+    const title = lastJsonString(text, "customTitle") || lastJsonString(text, "aiTitle");
+    if (title) return title;
   }
-  return lastJsonString(text, "customTitle") || lastJsonString(text, "aiTitle");
+  return "";
+}
+
+/** Claude Code's project-dir encoding: every non-alphanumeric cwd character
+ *  becomes "-" (so `/Users/x/Projects` → `-Users-x-Projects`). */
+function derivedTranscriptPath(cwd: string, sessionId: string): string {
+  const enc = cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  return join(homedir(), ".claude", "projects", enc, `${sessionId}.jsonl`);
 }
 
 /** Last occurrence of `"key":"<value>"` in raw JSONL, JSON-unescaped. */
@@ -86,17 +116,26 @@ function lastJsonString(text: string, key: string): string {
 }
 
 /** Click the Window-menu item whose name ends with `title` (tab names carry a
- *  spinner/✳ status prefix ahead of the session title). */
-async function clickWindowMenuTab(title: string): Promise<{ ok: true } | { ok: false; error: string }> {
+ *  spinner/✳ status prefix ahead of the session title). With `requireUnique`,
+ *  refuse ambiguous matches — used for the default "Claude Code" title, where
+ *  guessing between two fresh sessions would jump to the wrong one. */
+async function clickWindowMenuTab(
+  title: string,
+  opts: { requireUnique?: boolean } = {},
+): Promise<{ ok: true } | { ok: false; error: string }> {
   // AppleScript string literals don't honour backslash escapes; embed any
   // double-quote via the `quote` keyword instead.
   const escaped = title.replace(/"/g, '" & quote & "');
+  const uniqueGuard = opts.requireUnique
+    ? `if (count of tabItems) is greater than 1 then return "ERR:ambiguous"`
+    : "";
   const script = `
     tell application "System Events"
       if not (exists process "Ghostty") then return "ERR:not-running"
       tell process "Ghostty"
         set tabItems to (menu items of menu "Window" of menu bar item "Window" of menu bar 1 whose name ends with "${escaped}")
         if (count of tabItems) is 0 then return "ERR:no-menu-match"
+        ${uniqueGuard}
         click item 1 of tabItems
       end tell
       return "OK"

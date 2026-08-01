@@ -169,6 +169,7 @@ export class SlotAction extends SingletonAction {
         terminal: slot?.terminal ?? "unknown",
         origin: slot?.origin ?? "wsl",
         transcriptPath: slot?.transcriptPath,
+        sessionId: slot?.sessionId,
       });
       streamDeck.logger.info(`focus(${slot?.terminal ?? "unknown"}): ${res.reason} for cwd=${cwd}`);
       await ev.action.showOk();
