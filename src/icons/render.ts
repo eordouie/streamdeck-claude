@@ -158,14 +158,29 @@ export function renderIcon({ state, slot, label, frame = 0, now, todos, attentio
         `<circle cx="126" cy="18" r="5" fill="#ffffff"/>`
       : "";
 
+  // The border is painted AFTER the motif so a motif that runs to the edge
+  // (the walking mascot) passes *behind* the frame instead of over it — which
+  // is the effect we want anyway, and is pure paint order rather than a
+  // renderer feature. Nothing else reaches the frame, so every other state
+  // looks identical either way.
+  const border = `<rect x="${BORDER_INSET}" y="${BORDER_INSET}" width="${BORDER_SIZE}" height="${BORDER_SIZE}" rx="${BORDER_RADIUS}" fill="none" stroke="${borderStroke}" stroke-width="${BORDER_STROKE}" stroke-linejoin="round" opacity="${isEmpty ? "0.45" : "0.95"}"/>`;
+  // …and a matte over the thin margin outside the frame, so the mascot is
+  // hidden there too rather than leaking a sliver past the yellow. Skipped on
+  // pulsing states: their overlay tints the whole tile, and a bg-coloured
+  // matte would cut a dark ring around it.
+  const edgeMatte = STATES[state].pulseBg
+    ? ""
+    : `<rect x="${BORDER_INSET / 4}" y="${BORDER_INSET / 4}" width="${144 - BORDER_INSET / 2}" height="${144 - BORDER_INSET / 2}" rx="${BORDER_RADIUS + 2}" fill="none" stroke="${bg}" stroke-width="${BORDER_INSET / 2}"/>`;
+
   return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
 <rect width="144" height="144" fill="${bg}"/>
 ${pulseOverlay}
-<rect x="${BORDER_INSET}" y="${BORDER_INSET}" width="${BORDER_SIZE}" height="${BORDER_SIZE}" rx="${BORDER_RADIUS}" fill="none" stroke="${borderStroke}" stroke-width="${BORDER_STROKE}" stroke-linejoin="round" opacity="${isEmpty ? "0.45" : "0.95"}"/>
 ${bgBadge}
 ${owedDot}
 ${topLine}
 <g transform="translate(0,${MOTIF_DY})">${STATES[state].motif(frame, accent, slot)}</g>
+${edgeMatte}
+${border}
 ${line1Svg}
 ${line2Svg}
 ${todoColumn}

@@ -117,3 +117,59 @@ carry *unset* examples (`NativeCode: -1`). Guessed encodings fail silently.
 That's why command keys here are a first-party plugin action
 (`com.julien.claudesessions.command`) with explicit settings instead of
 profile-baked built-ins.
+
+## `<clipPath>` outside `<defs>` renders as a black box
+
+Making the `working` mascot walk off one edge and back in the other needed
+the character hidden at the frame. The first attempt clipped the motif with
+a `<clipPath>` emitted as a plain child of the motif group. On the deck the
+key turned into a black rectangle with only two slivers of border showing:
+the Stream Deck app painted the clip's `<rect>` as ordinary content — the
+128x264 rect, default black fill, covering everything but the left and right
+edges.
+
+Clipping itself is fine. `icons/text.ts` has clipped the marquee since day
+one — the difference is that it wraps its `<clipPath>` in `<defs>`. Outside
+`<defs>`, the element is drawn.
+
+Two things worth keeping from this:
+
+- **resvg is more forgiving than the deck.** The local `@resvg/resvg-js`
+  preview honoured the stray clip and looked perfect, so the filmstrip
+  actively hid the bug. A preview proves geometry, never renderer support —
+  anything relying on an SVG feature has to be seen on the hardware.
+- **Paint order beat the clip anyway.** Drawing the border *after* the motif
+  gets the same result with nothing but z-order, and it is what the effect
+  wanted in the first place: the mascot passes behind the frame. Reach for
+  ordering before reaching for a renderer feature.
+
+A third trap, in the preview harness rather than the plugin: compositing
+tiles into one sheet with `<g transform>` lets a tile's off-screen wrap copy
+paint over its neighbour, which looked exactly like a duplicate-sprite bug.
+Each key on the deck is its own 144x144 image and has no neighbours. Use a
+nested `<svg>` per tile — it establishes a viewport and clips to it — or the
+harness will invent bugs the product doesn't have.
+
+## Desync is about when things change, not what they look like
+
+The `subagent` motif walks the slot's mascot with three small copies of itself
+in tow. Drawn from one sprite they read as one object stamped four times, so
+each member runs its own frame offset (legs, breathing) and blink phase. Two
+traps, both invisible in a still frame and only findable by doing the
+arithmetic:
+
+- **Offsets alias against the cycle they are offsetting.** The first blink
+  stagger was `(i+1) * 1130 ms`. It looks like three distinct phases until you
+  notice `3 x 1130 = 3390`, essentially the 3400 ms blink period — so the last
+  baby blinked in lockstep with the parent, which is precisely what the offset
+  existed to prevent. Any stagger has to be checked modulo the period it is
+  spreading across, not just eyeballed for distinctness.
+- **With N poses and more than N members, sharing a pose is unavoidable — so
+  stagger the transitions instead.** The leg cycle has two poses and switches
+  every 3 frames, giving only three distinct switch phases. Frame offsets that
+  are multiples of 3 put a baby's stride change on the exact frame as the
+  parent's: opposite pose, identical rhythm, which is what "in sync" looks like
+  in motion. Offsets 1, 2, 4 keep every baby off the parent's switch frames.
+
+Both were verified by printing the phases and the switch frames, not by looking
+at a render. A still frame cannot show a rhythm.

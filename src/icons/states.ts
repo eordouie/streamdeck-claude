@@ -7,8 +7,9 @@ import {
   planPulse,
   questionPulse,
   slotCharacterIdle,
+  slotCharacterWalk,
   spinnerArc,
-  subagentBranch,
+  subagentWalk,
 } from "./motifs.js";
 
 type Palette = { bg: string; accent: string; label: string };
@@ -29,8 +30,15 @@ interface StateDef {
 }
 
 export const STATES = {
-  working:       { palette: { bg: "#0f1115", accent: "#fbbf24", label: "#fde68a" }, animated: true,  pulseBg: false, motif: spinnerArc },
-  subagent:      { palette: { bg: "#0f1115", accent: "#fbbf24", label: "#fde68a" }, animated: true,  pulseBg: false, motif: subagentBranch },
+  // Working keeps the amber chrome but walks the slot's own mascot across the
+  // tile instead of spinning an arc, so a busy key stays the character you
+  // recognise. `bg_working` deliberately keeps the arc — a background agent is
+  // not this session's mascot doing the work.
+  working:       { palette: { bg: "#0f1115", accent: "#fbbf24", label: "#fde68a" }, animated: true,  pulseBg: false, motif: slotCharacterWalk },
+  // Same walk as `working`, plus a few small copies of the mascot in tow —
+  // delegated work, travelling with you. Each member has its own frame and
+  // blink phase; see subagentWalk.
+  subagent:      { palette: { bg: "#0f1115", accent: "#fbbf24", label: "#fde68a" }, animated: true,  pulseBg: false, motif: subagentWalk },
   idle:          { palette: { bg: "#0f1115", accent: "#3b82f6", label: "#bfdbfe" }, animated: true,  pulseBg: false, motif: slotCharacterIdle },
   awaiting:            { palette: { bg: "#1a1208", accent: "#f97316", label: "#fed7aa" }, animated: true,  pulseBg: true,  motif: awaitingPulse },
   awaiting_permission: { palette: { bg: "#1a1308", accent: "#f59e0b", label: "#fde68a" }, animated: true,  pulseBg: true,  motif: permissionPulse },

@@ -90,12 +90,11 @@ export function planPulse(frame: number, color: string): string {
  *      enough to catch the blink window and render-loop dedups between blinks.
  *  `color` is unused — keeping Clawd's native peach preserves the character
  *  while the idle palette drives chrome. */
-export function clawdIdleLook(frame: number, _color: string): string {
+export function clawdIdleLook(frame: number, blinkPhaseMs = 0): string {
   const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
-  const blinking = Date.now() % BLINK_PERIOD_MS < BLINK_CLOSED_MS;
-  const eyeScaleY = blinking ? "0.1" : "1";
+  const eyeScaleY = blinkScaleY(blinkPhaseMs);
   const c = "#DE886D";
   // Clawd strolls too: leg pairs alternate every 3 frames, phase-opposed to
   // the T-Rex next door; the body (drawn over the leg tops) bobs on the
@@ -129,16 +128,160 @@ ${legs}
  *  wall-clock). Blinks are phase-shifted per slot so the row doesn't blink
  *  in unison. Native palettes — like Clawd, the characters keep their own
  *  colors while the idle palette drives the chrome. */
-export function slotCharacterIdle(frame: number, color: string, slot?: number): string {
-  const n = Math.max(1, slot ?? 1);
-  const blinkPhaseMs = (n - 1) * 700;
-  switch ((n - 1) % 5) {
-    case 1: return dinoIdleLook(frame, blinkPhaseMs);
-    case 2: return sauropodIdleLook(frame, blinkPhaseMs);
-    case 3: return llamaIdleLook(frame, blinkPhaseMs);
-    case 4: return elephantIdleLook(frame, blinkPhaseMs);
-    default: return clawdIdleLook(frame, color);
+/** A slot's mascot as a uniform `(frame, blinkPhaseMs)` function. The walking
+ *  and subagent motifs drive those two channels independently of the slot,
+ *  which is the only thing `slotCharacterIdle` derives them from — a family of
+ *  the same character needs one sprite per member on its own phase. */
+function mascotFor(slot: number): (frame: number, blinkPhaseMs: number) => string {
+  switch ((Math.max(1, slot) - 1) % 5) {
+    case 1: return dinoIdleLook;
+    case 2: return sauropodIdleLook;
+    case 3: return llamaIdleLook;
+    case 4: return elephantIdleLook;
+    default: return clawdIdleLook;
   }
+}
+
+/** Blink phase for a slot's own mascot — staggered so the row never blinks in
+ *  unison. Babies offset further off this. */
+const slotBlinkPhase = (slot: number): number => (Math.max(1, slot) - 1) * 700;
+
+/** Key-space y of a mascot's shadow. Every mascot draws its shadow at local
+ *  y=15 under `scale(4)`, so this is just its base translate + 60 — Clawd is
+ *  the one that sits higher. Babies are scaled about this line, so a family
+ *  walks on the same ground however small its members are. */
+const footLine = (slot: number): number => ((Math.max(1, slot) - 1) % 5 === 0 ? 85 : 95);
+
+export function slotCharacterIdle(frame: number, _color: string, slot?: number): string {
+  const n = Math.max(1, slot ?? 1);
+  return mascotFor(n)(frame, slotBlinkPhase(n));
+}
+
+/** One full traverse of the key while a session is working. Wall-clock
+ *  driven, not frame-driven: the 12-frame counter is 1.44 s at ANIMATION_MS
+ *  =120, so a crossing on that period would be a frantic skitter rather than
+ *  a walk. Same reason `blinkScaleY` reads the clock — a cadence that doesn't
+ *  divide the frame counter belongs on wall-clock, and the 120 ms tick is
+ *  fast enough to sample it smoothly. The leg cycle stays on `frame`, which
+ *  is what it was built for. */
+export const WALK_PERIOD_MS = 5200;
+
+/** The character is drawn twice, one key-width apart, so its leading edge
+ *  enters one side while its tail is still leaving the other — a full exit
+ *  followed by a re-entry would leave the tile empty for part of every loop. */
+const WALK_SPAN = 144;
+
+/** Every mascot travels the way it faces, or it moonwalks. Slots 3-5
+ *  (sauropod, llama, elephant) are drawn in left-facing profile; the T-Rex
+ *  faces right, and Clawd is front-on with no preferred side. */
+function walkDirection(slot: number): 1 | -1 {
+  switch ((Math.max(1, slot) - 1) % 5) {
+    case 2:
+    case 3:
+    case 4:
+      return -1;
+    default:
+      return 1;
+  }
+}
+
+/** The per-slot mascot from `slotCharacterIdle`, walking across the key and
+ *  wrapping. Used for `working` in place of the spinner arc.
+ *
+ *  Deliberately does NOT clip itself. The character disappears behind the
+ *  border because render.ts paints the border *after* the motif — pure paint
+ *  order, needing nothing from the renderer.
+ *
+ *  The first attempt clipped instead, with a bare `<clipPath>` as a child of
+ *  the motif group. On the deck that rendered as a black box over the whole
+ *  tile, leaving only two slivers of border. Not because clipping is
+ *  unsupported — `text.ts` clips the marquee and always has — but because it
+ *  wraps its `<clipPath>` in `<defs>`. Outside `<defs>` the Stream Deck app
+ *  paints the clip's `<rect>` as ordinary content. See LESSONS.md. */
+/** Walking pace in px/ms, derived once so every walk motif moves at the same
+ *  speed whatever distance it has to cover. The subagent family is wider than
+ *  a lone mascot and needs a longer span; the same legs must not sprint to
+ *  cover it. */
+const WALK_SPEED_PX_MS = WALK_SPAN / WALK_PERIOD_MS;
+
+/** Draw `body` twice, `span` apart, sliding at the shared pace. Two copies is
+ *  what makes the wrap continuous: the leading edge enters one side while the
+ *  tail is still leaving the other. */
+function traverse(body: string, span: number, dir: 1 | -1): string {
+  const periodMs = span / WALK_SPEED_PX_MS;
+  const t = (Date.now() % periodMs) / periodMs;
+  const travelled = dir > 0 ? t * span : (1 - t) * span;
+  return `<g transform="translate(${(travelled - span).toFixed(2)} 0)">${body}</g>
+<g transform="translate(${travelled.toFixed(2)} 0)">${body}</g>`;
+}
+
+export function slotCharacterWalk(frame: number, _color: string, slot?: number): string {
+  const n = Math.max(1, slot ?? 1);
+  return traverse(mascotFor(n)(frame, slotBlinkPhase(n)), WALK_SPAN, walkDirection(n));
+}
+
+/** How many babies trail the parent while a Task subagent runs. */
+const BABY_COUNT = 3;
+/** Baby size relative to the parent. */
+const BABY_SCALE = 0.45;
+/** Clear space between the parent and the first baby, and between babies. */
+const BABY_GAP = 4;
+/** A mascot is 13 local units wide under `scale(4)`. */
+const PARENT_W = 52;
+const BABY_W = PARENT_W * BABY_SCALE;
+const FAMILY_W = PARENT_W + BABY_COUNT * (BABY_W + BABY_GAP);
+/** Clear ground behind one family before the next arrives. Deliberately well
+ *  under the 144 px key: the family is wide, so a large gap leaves the tile
+ *  looking empty for seconds at a time, and an empty tile reads as idle. */
+const FAMILY_TAILGAP = 55;
+
+/** Blink phases spread across the blink period so no two of a family ever
+ *  blink together, nudged off an even split so the spread is not itself a
+ *  visible pattern. Worth stating why this is not a plain multiple: a 1130 ms
+ *  step looks fine until you notice 3 x 1130 = 3390 ~ BLINK_PERIOD_MS, which
+ *  put the last baby back in lockstep with the parent — the exact thing the
+ *  offsets exist to prevent. */
+const blinkSpread = (i: number): number => ((i + 1) * BLINK_PERIOD_MS) / (BABY_COUNT + 1) + i * 130;
+
+/** Frame offsets for the babies' legs. Never a multiple of 3: the leg cycle
+ *  switches every 3 frames, so a multiple lands a baby's stride change on the
+ *  exact frame as the parent's — opposite pose, identical rhythm, which is
+ *  what "in sync" actually looks like in motion. With only two leg poses some
+ *  members inevitably share one at any instant; what has to differ is *when
+ *  they change*. */
+const LEG_OFFSETS = [1, 2, 4] as const;
+
+/** The slot's mascot walking with a few small copies of itself in tow — the
+ *  `subagent` state's answer to `slotCharacterWalk`.
+ *
+ *  The family travels as one group (same direction, same pace: delegated work
+ *  moves with you), but each member runs its own frame and blink phase. Shared
+ *  phase is what makes a repeated sprite read as one object stamped N times
+ *  rather than N individuals, so the offsets are the whole point: legs land at
+ *  different moments and nobody blinks in unison.
+ *
+ *  Babies are scaled about `(72, footLine)` — the key's horizontal centre and
+ *  the mascot's own shadow line — so they shrink toward the ground rather than
+ *  toward the origin, and the whole family walks on one surface. */
+export function subagentWalk(frame: number, _color: string, slot?: number): string {
+  const n = Math.max(1, slot ?? 1);
+  const dir = walkDirection(n);
+  const draw = mascotFor(n);
+  const pivotY = footLine(n) * (1 - BABY_SCALE);
+  const pivotX = 72 * (1 - BABY_SCALE);
+
+  let family = draw(frame, slotBlinkPhase(n));
+  for (let i = 0; i < BABY_COUNT; i++) {
+    // Behind the parent is opposite the direction of travel, so the family
+    // follows rather than leads whichever way the character faces.
+    const back = PARENT_W / 2 + BABY_GAP + BABY_W / 2 + i * (BABY_W + BABY_GAP);
+    const body = draw(frame + LEG_OFFSETS[i % LEG_OFFSETS.length], slotBlinkPhase(n) + blinkSpread(i));
+    const x = (pivotX - dir * back).toFixed(2);
+    family += `\n<g transform="translate(${x} ${pivotY.toFixed(2)}) scale(${BABY_SCALE})">${body}</g>`;
+  }
+  // The pace is unchanged by the longer span — `traverse` derives time from
+  // distance, so the same legs cover more ground in proportionally more time.
+  return traverse(family, FAMILY_W + FAMILY_TAILGAP, dir);
 }
 
 /** Blink cadence shared by every mascot: a quick ~150 ms closure every
