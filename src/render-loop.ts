@@ -42,6 +42,13 @@ export async function renderAll(
     slotState.origin = entry?.session.origin;
     slotState.terminal = entry?.session.terminal;
     slotState.transcriptPath = entry?.session.transcriptPath;
+    // Ordinal among interactive (tab-hosted) sessions in display order — bg
+    // agents and finished carry-overs have no tab, so they don't count.
+    const isTabHosted = (e: typeof entry) => e !== undefined && e.session.kind !== "bg" && e.state !== "finished";
+    slotState.tabCount = entries.filter(isTabHosted).length;
+    slotState.tabOrdinal = isTabHosted(entry)
+      ? entries.slice(0, slotIndex - 1).filter(isTabHosted).length
+      : undefined;
     slotState.pid = entry?.session.pid;
     // entry undefined (slot vide) → killable=true, sans risque : onKeyDown sort tôt sur un slot vide avant de lire ce flag.
     slotState.killable = entry?.session.kind !== "bg";

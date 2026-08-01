@@ -38,24 +38,25 @@ export async function focusGhosttyTabOnMac(
     return { matched: false, reason: `${reason}; ${activated ? "app-activated" : "activate-failed"}` };
   };
 
-  // Tier 1: deterministic Window-menu jump by session title. A session with
-  // no generated topic yet is tabbed "<✳> Claude Code" — matching that
-  // default is still safe when exactly one such tab exists.
+  // Tier 1: deterministic Window-menu jump by session title. Sessions with
+  // no generated topic yet (tab still named "Claude Code") fall to ordinal
+  // matching instead: the Window menu lists tabs in creation order and slots
+  // are assigned in session-start order, so position N ↔ position N — valid
+  // only while the tab and session counts agree.
   const title = await sessionTitle(opts.transcriptPath, cwd, opts.sessionId);
-  const target = title || "Claude Code";
-  if (!title) {
-    streamDeck.logger.info(
-      `ghostty: no session title yet (transcript=${opts.transcriptPath || "unstamped"} sid=${opts.sessionId ?? "none"}); trying unique default-title match`,
-    );
+  // Activate first: raising the app is wanted on success anyway, and a
+  // menu interaction on a frontmost app is the reliable path.
+  await activateApp();
+  if (title) {
+    const clicked = await clickWindowMenuTab(title);
+    if (clicked.ok) return { matched: true, reason: `menu title="${title}"` };
+    streamDeck.logger.info(`ghostty menu miss (${clicked.error}) title="${title}"`);
+    // fall through with the app already raised
   }
-  {
-    // Activate first: raising the app is wanted on success anyway, and a
-    // menu interaction on a frontmost app is the reliable path.
-    await activateApp();
-    const clicked = await clickWindowMenuTab(target, { requireUnique: !title });
-    if (clicked.ok) return { matched: true, reason: `menu title="${target}"` };
-    streamDeck.logger.info(`ghostty menu miss (${clicked.error}) title="${target}"`);
-    // fall through to the window scan with the app already raised
+  if (opts.tabOrdinal !== undefined && opts.tabCount !== undefined) {
+    const clicked = await clickClaudeTabByOrdinal(opts.tabOrdinal, opts.tabCount);
+    if (clicked.ok) return { matched: true, reason: `menu ordinal=${opts.tabOrdinal + 1}/${opts.tabCount}` };
+    streamDeck.logger.info(`ghostty ordinal miss (${clicked.error}) ordinal=${opts.tabOrdinal + 1}/${opts.tabCount}`);
   }
 
   // Tier 2: cwd-token match against enumerable (frontmost-per-window) tabs.
@@ -116,27 +117,34 @@ function lastJsonString(text: string, key: string): string {
 }
 
 /** Click the Window-menu item whose name ends with `title` (tab names carry a
- *  spinner/✳ status prefix ahead of the session title). With `requireUnique`,
- *  refuse ambiguous matches — used for the default "Claude Code" title, where
- *  guessing between two fresh sessions would jump to the wrong one. */
-async function clickWindowMenuTab(
-  title: string,
-  opts: { requireUnique?: boolean } = {},
-): Promise<{ ok: true } | { ok: false; error: string }> {
+ *  spinner/✳ status prefix ahead of the session title).
+ *
+ *  The working-state spinner ANIMATES inside the menu item name, and item
+ *  specifiers re-resolve by name on access — a `whose name ends with` result
+ *  clicked a beat later dies with -1728 when the spinner has moved on. So:
+ *  read `name of menu items` as one atomic list, find the index locally, and
+ *  click by NUMERIC index, which never re-resolves a name. */
+async function clickWindowMenuTab(title: string): Promise<{ ok: true } | { ok: false; error: string }> {
   // AppleScript string literals don't honour backslash escapes; embed any
   // double-quote via the `quote` keyword instead.
   const escaped = title.replace(/"/g, '" & quote & "');
-  const uniqueGuard = opts.requireUnique
-    ? `if (count of tabItems) is greater than 1 then return "ERR:ambiguous"`
-    : "";
   const script = `
     tell application "System Events"
       if not (exists process "Ghostty") then return "ERR:not-running"
       tell process "Ghostty"
-        set tabItems to (menu items of menu "Window" of menu bar item "Window" of menu bar 1 whose name ends with "${escaped}")
-        if (count of tabItems) is 0 then return "ERR:no-menu-match"
-        ${uniqueGuard}
-        click item 1 of tabItems
+        set ns to name of menu items of menu "Window" of menu bar item "Window" of menu bar 1
+        set idx to 0
+        repeat with i from 1 to count of ns
+          set n to item i of ns
+          if n is not missing value then
+            if n ends with "${escaped}" then
+              set idx to i
+              exit repeat
+            end if
+          end if
+        end repeat
+        if idx is 0 then return "ERR:no-menu-match"
+        click menu item idx of menu "Window" of menu bar item "Window" of menu bar 1
       end tell
       return "OK"
     end tell
@@ -144,6 +152,67 @@ async function clickWindowMenuTab(
   const r = await runOsa(script, 4000);
   if (!r.ok) return { ok: false, error: r.error };
   return r.out === "OK" ? { ok: true } : { ok: false, error: r.out };
+}
+
+/** Ordinal fallback for untitled sessions: enumerate the Window menu, take the
+ *  tab section (everything after "Arrange in Front"), keep claude tabs (names
+ *  led by a status glyph — braille spinner or ✳-style star), and click the
+ *  item at `ordinal` — but only when the claude-tab count equals the
+ *  interactive-session count, otherwise the position mapping is untrustworthy. */
+async function clickClaudeTabByOrdinal(
+  ordinal: number,
+  sessionCount: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  // `name of menu items` is one atomic AX read — iterating item specifiers
+  // one by one dies with -1728 when an animated spinner renames a tab between
+  // snapshot and access (see clickWindowMenuTab).
+  const listScript = `
+    tell application "System Events"
+      if not (exists process "Ghostty") then return "ERR:not-running"
+      tell process "Ghostty"
+        set ns to name of menu items of menu "Window" of menu bar item "Window" of menu bar 1
+      end tell
+    end tell
+    set out to {}
+    repeat with i from 1 to count of ns
+      set n to item i of ns
+      if n is missing value then set n to ""
+      set end of out to (i as text) & tab & n
+    end repeat
+    set AppleScript's text item delimiters to linefeed
+    return out as text
+  `;
+  const r = await runOsa(listScript, 4000);
+  if (!r.ok) return { ok: false, error: r.error };
+  if (r.out.startsWith("ERR:")) return { ok: false, error: r.out };
+
+  const rows = r.out.split("\n").map((line) => {
+    const tab = line.indexOf("\t");
+    return { index: Number(line.slice(0, tab)), name: line.slice(tab + 1) };
+  });
+  const anchor = rows.findIndex((row) => row.name === "Arrange in Front");
+  if (anchor < 0) return { ok: false, error: "no-tab-section" };
+  // Claude tabs: status glyph (non-ASCII) + space + title. Plain-shell tabs
+  // (cwd/program names) don't carry the prefix.
+  const claudeTabs = rows.slice(anchor + 1).filter((row) => /^[^\x00-\x7F] /.test(row.name));
+  if (claudeTabs.length !== sessionCount) {
+    return { ok: false, error: `tab-count-mismatch (tabs=${claudeTabs.length} sessions=${sessionCount})` };
+  }
+  const target = claudeTabs[ordinal];
+  if (!target) return { ok: false, error: `ordinal-out-of-range (${ordinal})` };
+
+  const clickScript = `
+    tell application "System Events"
+      if not (exists process "Ghostty") then return "ERR:not-running"
+      tell process "Ghostty"
+        click menu item ${target.index} of menu "Window" of menu bar item "Window" of menu bar 1
+      end tell
+      return "OK"
+    end tell
+  `;
+  const c = await runOsa(clickScript, 4000);
+  if (!c.ok) return { ok: false, error: c.error };
+  return c.out === "OK" ? { ok: true } : { ok: false, error: c.out };
 }
 
 /** One window (= frontmost tab per window) name per line via System Events. */

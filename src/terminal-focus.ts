@@ -36,15 +36,19 @@ export async function focusTerminalForSession(opts: {
   /** Session id — lets backends derive the transcript path for sessions that
    *  predate the transcript stamp. */
   sessionId?: string;
+  /** Position among interactive sessions (start order) + their total — for
+   *  ordinal tab matching when the session has no title yet. */
+  tabOrdinal?: number;
+  tabCount?: number;
 }): Promise<FocusResult> {
-  const { cwd, terminal, origin, transcriptPath, sessionId } = opts;
+  const { cwd, terminal, origin, transcriptPath, sessionId, tabOrdinal, tabCount } = opts;
   switch (terminal) {
     case "warp":
       return focusWarpTabForCwd(cwd);
     case "vscode":
       return focusVscodeWindowForCwd(cwd, origin);
     case "ghostty":
-      return focusGhosttyTabForCwd(cwd, origin, { activateOnMiss: true, transcriptPath, sessionId });
+      return focusGhosttyTabForCwd(cwd, origin, { activateOnMiss: true, transcriptPath, sessionId, tabOrdinal, tabCount });
     case "iterm":
       return { matched: false, reason: "iterm-not-implemented" };
     case "other":
@@ -56,7 +60,7 @@ export async function focusTerminalForSession(opts: {
       const vscode = await focusVscodeWindowForCwd(cwd, origin);
       if (vscode.matched) return vscode;
       streamDeck.logger.info(`focus: unknown terminal, vscode miss (${vscode.reason}); trying ghostty`);
-      return focusGhosttyTabForCwd(cwd, origin, { transcriptPath, sessionId });
+      return focusGhosttyTabForCwd(cwd, origin, { transcriptPath, sessionId, tabOrdinal, tabCount });
     }
   }
 }

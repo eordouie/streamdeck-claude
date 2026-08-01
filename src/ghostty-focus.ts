@@ -17,6 +17,12 @@ export interface GhosttyFocusOpts {
   /** Session id — fallback route to the transcript (derived path) for
    *  sessions whose event log predates the transcript stamp. */
   sessionId?: string;
+  /** Position among interactive sessions (start order) + their total. When a
+   *  session has no title yet, tabs and sessions are matched by position —
+   *  valid only while every interactive session has a tab and tabs are in
+   *  creation order, so the click is refused unless the counts agree. */
+  tabOrdinal?: number;
+  tabCount?: number;
 }
 
 /**

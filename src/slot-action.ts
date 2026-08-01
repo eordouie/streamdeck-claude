@@ -32,6 +32,11 @@ export interface SlotState {
   terminal?: TerminalKind;
   /** Transcript path of the bound session — mined for the tab title on press. */
   transcriptPath?: string;
+  /** Position of this session among interactive (tab-hosted) sessions in
+   *  start order, and their total — drives ordinal tab matching when the
+   *  session has no title yet. */
+  tabOrdinal?: number;
+  tabCount?: number;
   /** Bound session pid — required to kill the process on a ≥3s hold. */
   pid?: number;
   /** Wall-clock ms du début d'arming (≥LONG_PRESS_MS tenu). undefined = pas en
@@ -203,6 +208,8 @@ export class SlotAction extends SingletonAction {
         origin: slot?.origin ?? "wsl",
         transcriptPath: slot?.transcriptPath,
         sessionId: slot?.sessionId,
+        tabOrdinal: slot?.tabOrdinal,
+        tabCount: slot?.tabCount,
       });
       // No showOk here: landing on the tab (and the flash clearing) IS the
       // feedback — the green checkmark overlay just adds noise.
