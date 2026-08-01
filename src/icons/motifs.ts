@@ -301,8 +301,8 @@ function elephantIdleLook(frame: number, blinkPhaseMs: number): string {
   // below the belly line. Flicks outward on the offbeat.
   const shaft = "#7d8698";
   const tail = stepA
-    ? `<rect x="13" y="5" width="1" height="6" fill="${shaft}"/><rect x="13" y="11" width="2" height="2" fill="${tuft}"/>`
-    : `<rect x="13" y="5" width="1" height="5" fill="${shaft}"/><rect x="14" y="10" width="1" height="1" fill="${shaft}"/><rect x="14" y="11" width="2" height="2" fill="${tuft}"/>`;
+    ? `<rect x="13" y="5" width="1" height="6" fill="${shaft}"/><rect x="13" y="11" width="1" height="2" fill="${tuft}"/>`
+    : `<rect x="13" y="5" width="1" height="5" fill="${shaft}"/><rect x="14" y="10" width="1" height="2" fill="${shaft}"/><rect x="14" y="12" width="1" height="1" fill="${tuft}"/>`;
   return `<g transform="translate(44 35) scale(4)">
 <rect x="1" y="15" width="12" height="1" fill="#000" opacity="0.45"/>
 ${legs}
