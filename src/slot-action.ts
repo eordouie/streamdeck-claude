@@ -57,6 +57,7 @@ export class SlotAction extends SingletonAction {
   constructor(
     private readonly resetSlot: (sessionId: string, origin: SessionOrigin) => Promise<void>,
     private readonly killSlot: (pid: number, sessionId: string, origin: SessionOrigin) => Promise<void>,
+    private readonly acknowledgeSlot: (sessionId: string) => void = () => {},
   ) {
     super();
   }
@@ -162,6 +163,9 @@ export class SlotAction extends SingletonAction {
       await ev.action.showAlert();
       return;
     }
+    // Pressing the key IS the acknowledgement — stop the attention flash even
+    // if the focus attempt below misses.
+    if (slot?.sessionId) this.acknowledgeSlot(slot.sessionId);
     try {
       await copyToClipboard(cwd);
       const res = await focusTerminalForSession({

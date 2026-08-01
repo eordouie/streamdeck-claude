@@ -32,6 +32,10 @@ export interface IconOptions {
   now?: number;
   /** TodoWrite snapshot — renders a left-edge progress column when non-empty. */
   todos?: TodoStatus[];
+  /** Unacknowledged attention (session finished / needs input since the user
+   *  last engaged it): flash the tile until the key is pressed or the session
+   *  gets a new prompt. */
+  attention?: boolean;
 }
 
 // Left-edge progress column geometry. The column sits at x=2..7, outside the
@@ -81,9 +85,10 @@ function renderBgBadge(accent: string): string {
   return `<text x="16" y="22" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" font-weight="700" fill="${accent}" opacity="0.8" text-anchor="start">bg</text>`;
 }
 
-export function renderIcon({ state, slot, label, frame = 0, now, todos }: IconOptions): string {
+export function renderIcon({ state, slot, label, frame = 0, now, todos, attention }: IconOptions): string {
   const t = now ?? Date.now();
   const { bg, accent, label: labelColor } = STATES[state].palette;
+  const flash = attention === true;
   const slotText = state === "empty" ? "" : String(slot);
   const isEmpty = state === "empty";
   const { top, line1, line2 } = isEmpty
@@ -130,22 +135,28 @@ export function renderIcon({ state, slot, label, frame = 0, now, todos }: IconOp
   const slotBadge = isEmpty ? "" : renderSlotBadge(slotText, accent);
   const bgBadge = isBgState(state) ? renderBgBadge(accent) : "";
 
+  // Shared triangle wave: the state's own urgent pulse (pulseBg) and the
+  // unacknowledged-attention flash both ride it, PULSE_BG_SPEED× faster than
+  // the motif beat.
+  const phase = ((frame * PULSE_BG_SPEED) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
+  const tri = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+
   let pulseOverlay = "";
-  if (STATES[state].pulseBg) {
-    // Same triangle wave the motifs use (motifs.ts), but ticked PULSE_BG_SPEED×
-    // faster so the tile flashes urgently while the motif keeps its calmer beat.
-    const phase = ((frame * PULSE_BG_SPEED) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
-    const tri = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+  if (STATES[state].pulseBg || flash) {
     const opacity = (tri * PULSE_BG_PEAK).toFixed(3);
     pulseOverlay = `<rect width="144" height="144" fill="${accent}" opacity="${opacity}"/>`;
   }
+
+  // Attention also strobes the border toward white at the wave peak so the
+  // flash reads from across a room, not just up close.
+  const borderStroke = flash && tri > 0.5 ? "#ffffff" : accent;
 
   const todoColumn = todos && todos.length > 0 ? renderTodoColumn(todos, frame) : "";
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
 <rect width="144" height="144" fill="${bg}"/>
 ${pulseOverlay}
-<rect x="${BORDER_INSET}" y="${BORDER_INSET}" width="${BORDER_SIZE}" height="${BORDER_SIZE}" rx="${BORDER_RADIUS}" fill="none" stroke="${accent}" stroke-width="${BORDER_STROKE}" stroke-linejoin="round" opacity="${isEmpty ? "0.45" : "0.95"}"/>
+<rect x="${BORDER_INSET}" y="${BORDER_INSET}" width="${BORDER_SIZE}" height="${BORDER_SIZE}" rx="${BORDER_RADIUS}" fill="none" stroke="${borderStroke}" stroke-width="${BORDER_STROKE}" stroke-linejoin="round" opacity="${isEmpty ? "0.45" : "0.95"}"/>
 ${slotBadge}
 ${bgBadge}
 ${topLine}

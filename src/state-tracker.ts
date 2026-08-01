@@ -12,11 +12,30 @@ import { filterLiveSessions } from "./live-pids.js";
 
 const FINISHED_TTL_MS = 3_000;
 
+/** States where the agent is actively working — leaving one of these for an
+ *  ATTENTION state is the "it needs you now" transition. */
+const BUSY_STATES: ReadonlySet<SessionState> = new Set(["working", "subagent", "bg_working"]);
+/** States that deserve the unacknowledged-attention flash when entered from a
+ *  busy state: done responding, waiting on input/permission/plan, or errored. */
+const ATTENTION_STATES: ReadonlySet<SessionState> = new Set([
+  "idle",
+  "awaiting",
+  "awaiting_permission",
+  "awaiting_question",
+  "awaiting_plan",
+  "error",
+  "bg_awaiting",
+  "bg_awaiting_permission",
+]);
+
 export interface DisplayEntry {
   session: SessionInfo;
   state: SessionState;
   /** When state became "finished"; used to expire the entry after FINISHED_TTL_MS. */
   finishedAt?: number;
+  /** Busy → needs-you transition not yet acknowledged — drives the key flash.
+   *  Cleared by a slot press or by the session going busy again (new prompt). */
+  attention?: boolean;
 }
 
 /**
@@ -31,6 +50,10 @@ export function createStateTracker() {
   let prevLiveIds = new Set<string>();
   /** Sorted display entries from the last tick; consumed by render(). */
   let cachedEntries: DisplayEntry[] = [];
+  /** Last displayed state per live session — used to detect busy → needs-you transitions. */
+  const prevStates = new Map<string, SessionState>();
+  /** Sessions flashing for attention, keyed by sessionId. */
+  const attention = new Set<string>();
 
   let lastDiag = "";
   function maybeLog(msg: string): void {
@@ -64,6 +87,20 @@ export function createStateTracker() {
       .filter((s) => live.has(s.sessionId))
       .map((session) => ({ session, state: deriveState(session, true) }));
 
+    // Attention bookkeeping: arm on busy → needs-you, disarm when the session
+    // goes busy again (the user replied) — a slot press disarms via acknowledge().
+    for (const e of liveEntries) {
+      const sid = e.session.sessionId;
+      const prev = prevStates.get(sid);
+      if (prev !== undefined && BUSY_STATES.has(prev) && ATTENTION_STATES.has(e.state)) {
+        attention.add(sid);
+      } else if (BUSY_STATES.has(e.state)) {
+        attention.delete(sid);
+      }
+      prevStates.set(sid, e.state);
+      e.attention = attention.has(sid);
+    }
+
     // Promote a session into "finished" only if it was alive last tick and is gone now.
     // Stale session files (whose process hasn't been seen alive since we started)
     // are simply ignored — those are junk left over from previous CC runs.
@@ -79,6 +116,10 @@ export function createStateTracker() {
       }
     }
     prevLiveIds = liveIds;
+
+    // Dead sessions don't flash and don't leak bookkeeping.
+    for (const sid of attention) if (!liveIds.has(sid)) attention.delete(sid);
+    for (const sid of prevStates.keys()) if (!liveIds.has(sid)) prevStates.delete(sid);
 
     // Delete dead-process session files so the source dir stays bounded — left
     // unchecked they pile up (months of <pid>.json) and every one gets re-stat'd
@@ -103,8 +144,18 @@ export function createStateTracker() {
    * the render call when nothing would actually change.
    */
   function needsAnimation(): boolean {
-    return cachedEntries.some((e) => iconNeedsAnimation(e.state, e.session.label, e.session.todos));
+    return cachedEntries.some(
+      (e) => e.attention === true || iconNeedsAnimation(e.state, e.session.label, e.session.todos),
+    );
   }
 
-  return { tick, getEntries, needsAnimation };
+  /** Slot press acknowledged the session — stop its attention flash now. */
+  function acknowledge(sessionId: string): void {
+    attention.delete(sessionId);
+    for (const e of cachedEntries) {
+      if (e.session.sessionId === sessionId) e.attention = false;
+    }
+  }
+
+  return { tick, getEntries, needsAnimation, acknowledge };
 }
