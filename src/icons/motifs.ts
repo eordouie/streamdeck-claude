@@ -94,7 +94,7 @@ export function clawdIdleLook(frame: number, _color: string): string {
   const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
-  const blinking = Date.now() % 4000 < 150;
+  const blinking = Date.now() % BLINK_PERIOD_MS < BLINK_CLOSED_MS;
   const eyeScaleY = blinking ? "0.1" : "1";
   const c = "#DE886D";
   return `<g transform="translate(42 16) scale(4)">
@@ -132,8 +132,13 @@ export function slotCharacterIdle(frame: number, color: string, slot?: number): 
   }
 }
 
+/** Blink cadence shared by every mascot: a quick ~150 ms closure every
+ *  ~2.2 s — lively without being twitchy. */
+const BLINK_PERIOD_MS = 2200;
+const BLINK_CLOSED_MS = 150;
+
 const blinkScaleY = (phaseMs: number): string =>
-  (Date.now() + phaseMs) % 4000 < 150 ? "0.1" : "1";
+  (Date.now() + phaseMs) % BLINK_PERIOD_MS < BLINK_CLOSED_MS ? "0.1" : "1";
 
 /** The Chrome offline runner T-Rex, in green. Faces right; breathes from the
  *  hips up, legs planted. */
