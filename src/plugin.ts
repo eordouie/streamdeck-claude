@@ -2,6 +2,7 @@ import streamDeck, { LogLevel } from "@elgato/streamdeck";
 import { ANIMATION_FRAMES } from "./icons/index.js";
 import { SlotAction } from "./slot-action.js";
 import { SetupAction } from "./setup-action.js";
+import { CommandAction } from "./command-action.js";
 import { watchForReload } from "./reload-watcher.js";
 import { createStateTracker } from "./state-tracker.js";
 import { renderAll } from "./render-loop.js";
@@ -60,9 +61,11 @@ async function killSlot(pid: number, sessionId: string, origin: SessionOrigin): 
 
 const slotAction = new SlotAction(resetSlot, killSlot);
 const setupAction = new SetupAction(refreshNow);
+const commandAction = new CommandAction();
 
 streamDeck.actions.registerAction(slotAction);
 streamDeck.actions.registerAction(setupAction);
+streamDeck.actions.registerAction(commandAction);
 await streamDeck.connect();
 
 watchForReload({ pollMs: POLL_MS });

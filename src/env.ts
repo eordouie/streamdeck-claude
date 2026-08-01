@@ -46,6 +46,9 @@ export const WSL_SESSIONS_DIR = join(WSL_HOME, ".claude", "sessions");
 export const WSL_RELOAD_FILE = join(WSL_HOME, ".claude", ".streamdeck-claude.reload");
 /** Claude Code user-global settings.json (where install-hook.sh writes the hook). */
 export const WSL_SETTINGS_FILE = join(WSL_HOME, ".claude", "settings.json");
+/** Machine-local variant — on macOS install-hook.sh writes here so hook
+ *  registrations never ride a synced/dotfiles-managed settings.json. */
+export const WSL_SETTINGS_LOCAL_FILE = join(WSL_HOME, ".claude", "settings.local.json");
 
 /** Same paths, but as UNC the Windows-side plugin can read. */
 export const WSL_SESSIONS_DIR_FROM_WIN =

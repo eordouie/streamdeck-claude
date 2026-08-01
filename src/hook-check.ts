@@ -19,6 +19,7 @@ import {
   WIN_SETTINGS_FILE,
   WSL_SETTINGS_FILE,
   WSL_SETTINGS_FILE_FROM_WIN,
+  WSL_SETTINGS_LOCAL_FILE,
 } from "./env.js";
 
 /** Every event the state machine relies on. All are registered catch-all
@@ -42,7 +43,11 @@ export const REQUIRED_HOOK_EVENTS = [
  *  notification.ps1. */
 interface SettingsTarget {
   origin: string;
-  path: string;
+  /** Candidate settings files, merged: registered in ANY of them counts.
+   *  Claude Code itself merges hooks across its settings scopes, so a hook
+   *  living in settings.local.json (the macOS install target) is just as
+   *  live as one in settings.json. */
+  paths: string[];
   scriptRe: RegExp;
 }
 
@@ -51,11 +56,11 @@ const WINDOWS_HOOK_RE = /streamdeck-claude.*notification\.ps1/;
 
 const SETTINGS_TARGETS: SettingsTarget[] = platform() === "win32"
   ? [
-      { origin: "wsl", path: WSL_SETTINGS_FILE_FROM_WIN, scriptRe: POSIX_HOOK_RE },
-      { origin: "windows", path: WIN_SETTINGS_FILE, scriptRe: WINDOWS_HOOK_RE },
+      { origin: "wsl", paths: [WSL_SETTINGS_FILE_FROM_WIN], scriptRe: POSIX_HOOK_RE },
+      { origin: "windows", paths: [WIN_SETTINGS_FILE], scriptRe: WINDOWS_HOOK_RE },
     ]
   : [
-      { origin: "local", path: WSL_SETTINGS_FILE, scriptRe: POSIX_HOOK_RE },
+      { origin: "local", paths: [WSL_SETTINGS_LOCAL_FILE, WSL_SETTINGS_FILE], scriptRe: POSIX_HOOK_RE },
     ];
 
 export interface HookCheckResult {
@@ -88,13 +93,24 @@ function isRegisteredCatchAll(entry: unknown, scriptRe: RegExp): boolean {
 export async function checkHooks(): Promise<HookCheckResult> {
   const problems: string[] = [];
   for (const target of SETTINGS_TARGETS) {
-    let hooks: Record<string, unknown>;
-    try {
-      const parsed = JSON.parse(await readFile(target.path, "utf8")) as { hooks?: Record<string, unknown> };
-      hooks = parsed?.hooks ?? {};
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException)?.code;
-      problems.push(`${target.origin}: settings.json ${code === "ENOENT" ? "missing" : "unreadable"} (${target.path})`);
+    // Merge each event's registration arrays across the candidate files —
+    // a hook registered in any one of them is live.
+    const hooks: Record<string, unknown[]> = {};
+    let readAny = false;
+    for (const path of target.paths) {
+      try {
+        const parsed = JSON.parse(await readFile(path, "utf8")) as { hooks?: Record<string, unknown> };
+        readAny = true;
+        for (const [event, entry] of Object.entries(parsed?.hooks ?? {})) {
+          if (!Array.isArray(entry)) continue;
+          (hooks[event] ??= []).push(...entry);
+        }
+      } catch {
+        // Missing/unreadable candidates are fine as long as one file loads.
+      }
+    }
+    if (!readAny) {
+      problems.push(`${target.origin}: settings.json missing/unreadable (tried ${target.paths.join(", ")})`);
       continue;
     }
     for (const event of REQUIRED_HOOK_EVENTS) {

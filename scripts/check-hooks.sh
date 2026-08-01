@@ -113,7 +113,13 @@ if [ "$(uname -s)" != "Darwin" ]; then
 fi
 
 # --- Local POSIX settings (WSL on Windows, macOS native) ------------------
-check_settings "Local hooks (${USER:-?})" "${HOME}/.claude/settings.json" "$WSL_HOOK_REGEX"
+# macOS installs into settings.local.json (settings.json is commonly a synced
+# dotfiles symlink) — check the file install-hook.sh actually targets.
+if [ "$(uname -s)" = "Darwin" ]; then
+  check_settings "Local hooks (${USER:-?})" "${HOME}/.claude/settings.local.json" "$WSL_HOOK_REGEX"
+else
+  check_settings "Local hooks (${USER:-?})" "${HOME}/.claude/settings.json" "$WSL_HOOK_REGEX"
+fi
 
 # --- Windows settings (skipped on macOS — no WSL/Windows split here) ------
 if [ "$(uname -s)" != "Darwin" ]; then

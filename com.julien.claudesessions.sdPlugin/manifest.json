@@ -62,6 +62,23 @@
           "ShowTitle": false
         }
       ]
+    },
+    {
+      "Name": "Claude Command",
+      "UUID": "com.julien.claudesessions.command",
+      "Icon": "imgs/actions/command/icon",
+      "Tooltip": "Run a configured shell script (type a slash command into Ghostty, open a claude tab, send a key).",
+      "Controllers": [
+        "Keypad"
+      ],
+      "DisableAutomaticStates": true,
+      "States": [
+        {
+          "Image": "imgs/actions/command/key",
+          "TitleAlignment": "middle",
+          "ShowTitle": false
+        }
+      ]
     }
   ]
 }
