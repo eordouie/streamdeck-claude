@@ -180,11 +180,12 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           }
         }
 
-        // Key label: explicit session name wins, then the CURRENT discussion
-        // (from the latest substantial prompt — tracks topic changes live),
-        // then Claude's once-generated aiTitle/customTitle, then the cwd
-        // basename. The topic matters most when every session shares one
-        // working directory and the project name stops discriminating.
+        // Key label: the CURRENT discussion first (from the latest substantial
+        // prompt — tracks topic changes live), then Claude's aiTitle/customTitle
+        // (customTitle = an explicit rename, so deliberate names still surface),
+        // then the session-json name, then the cwd basename. raw.name is NOT
+        // user intent — Claude Code auto-fills it ("projects-61"), and letting
+        // it win is exactly what kept every key captioned with the project.
         let topicLabel = "";
         if (kind !== "bg" && !derived.promptLabel) {
           const transcriptPath =
@@ -196,7 +197,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           pid: raw.pid,
           sessionId: raw.sessionId,
           cwd: raw.cwd,
-          label: raw.name?.trim() || derived.promptLabel || topicLabel || basename(raw.cwd),
+          label: derived.promptLabel || topicLabel || raw.name?.trim() || basename(raw.cwd),
           startedAt: typeof raw.startedAt === "number" ? raw.startedAt : 0,
           rawStatus: status,
           kind,

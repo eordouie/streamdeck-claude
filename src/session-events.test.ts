@@ -54,5 +54,5 @@ test("substantial prompts move promptLabel; trivial ones keep it", () => {
   ]
     .map((e) => JSON.stringify(e))
     .join("\n");
-  assert.equal(reduceEvents(parseEventLog(log)).promptLabel, "brutally");
+  assert.equal(reduceEvents(parseEventLog(log)).promptLabel, "brutally audit");
 });

@@ -80,11 +80,11 @@ const STOPWORDS = new Set([
   "all", "any", "some", "instead", "change", "changes", "changed",
   "not", "no", "yes", "ok", "okay", "too", "very", "more", "less",
 ]);
-const MAX_LABEL_CHARS = 12;
+const MAX_LABEL_CHARS = 24;
 
-/** Compress a session title to the fittest 1-2 words for the key's top line:
- *  drop stopwords, then take leading words while they fit ~12 chars. Falls
- *  back to the first raw word when everything was a stopword. */
+/** Compress a session title to its two most significant leading words (the
+ *  key's top line marquees when wide, so width only vetoes absurd pairs).
+ *  Falls back to the raw words when everything was a stopword. */
 export function labelFromTitle(title: string): string {
   const words = title.split(/\s+/).filter(Boolean);
   if (words.length === 0) return "";
@@ -93,12 +93,8 @@ export function labelFromTitle(title: string): string {
     const s = strip(w).toLowerCase();
     return s.length > 1 && !STOPWORDS.has(s);
   });
-  const pool = significant.length > 0 ? significant : words;
-  let label = strip(pool[0]);
-  for (let i = 1; i < pool.length; i++) {
-    const next = `${label} ${strip(pool[i])}`;
-    if (next.length > MAX_LABEL_CHARS) break;
-    label = next;
-  }
-  return label;
+  const pool = (significant.length > 0 ? significant : words).map(strip).filter(Boolean);
+  if (pool.length === 0) return "";
+  const pair = pool.slice(0, 2).join(" ");
+  return pair.length > MAX_LABEL_CHARS ? pool[0] : pair;
 }
