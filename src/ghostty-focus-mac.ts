@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import streamDeck from "@elgato/streamdeck";
 import { derivedTranscriptPath, lastJsonString } from "./transcript-title.js";
 import type { SessionOrigin } from "./sessions.js";
@@ -51,6 +51,15 @@ export async function focusGhosttyTabOnMac(
     if (clicked.ok) return { matched: true, reason: `menu title="${title}"` };
     streamDeck.logger.info(`ghostty menu miss (${clicked.error}) title="${title}"`);
     // fall through with the app already raised
+  }
+  // Tier 1b: deterministic tty-marker jump. The session pid's controlling tty
+  // IS the tab's pty — write a marker title straight to the device, click the
+  // menu item bearing it, restore. Identifies the exact tab no matter how the
+  // strip has been reordered.
+  if (opts.pid !== undefined) {
+    const marked = await clickTabByTtyMarker(opts.pid, title || "Claude Code");
+    if (marked.ok) return { matched: true, reason: `tty-marker pid=${opts.pid}` };
+    streamDeck.logger.info(`ghostty tty-marker miss (${marked.error}) pid=${opts.pid}`);
   }
   if (opts.tabOrdinal !== undefined && opts.tabCount !== undefined) {
     const clicked = await clickClaudeTabByOrdinal(opts.tabOrdinal, opts.tabCount);
@@ -131,6 +140,41 @@ async function clickWindowMenuTab(title: string): Promise<{ ok: true } | { ok: f
   const r = await runOsa(script, 4000);
   if (!r.ok) return { ok: false, error: r.error };
   return r.out === "OK" ? { ok: true } : { ok: false, error: r.out };
+}
+
+/** Deterministic tab jump via the session's tty. Writing an OSC 2 title
+ *  sequence to /dev/<tty> renames THAT tab (it's the pty's output path — no
+ *  interference with the TUI reading stdin), so a unique marker makes the tab
+ *  findable in the Window menu regardless of strip order. The prior title is
+ *  restored afterwards; Claude repaints its own title on the next state
+ *  change anyway. */
+async function clickTabByTtyMarker(
+  pid: number,
+  restoreTitle: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const ps = await spawnCapture("/bin/ps", ["-o", "tty=", "-p", String(pid)], { timeoutMs: 2000 });
+  const tty = ps.stdout.trim();
+  if (ps.err || ps.code !== 0 || !/^tty\w+$/.test(tty)) {
+    return { ok: false, error: `no-tty (${ps.err ?? tty ?? "?"})` };
+  }
+  const dev = `/dev/${tty}`;
+  const marker = `cc-mark-${pid}`;
+  try {
+    await writeFile(dev, `\x1b]2;${marker}\x07`);
+  } catch (err) {
+    return { ok: false, error: `tty-write-failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  try {
+    // Give the terminal + menu a beat to pick the new name up.
+    await new Promise((r) => setTimeout(r, 300));
+    return await clickWindowMenuTab(marker);
+  } finally {
+    try {
+      await writeFile(dev, `\x1b]2;${restoreTitle}\x07`);
+    } catch {
+      // Tab keeps the marker until Claude repaints — cosmetic only.
+    }
+  }
 }
 
 /** Ordinal fallback for untitled sessions: enumerate the Window menu, take the

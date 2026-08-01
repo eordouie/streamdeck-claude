@@ -17,10 +17,13 @@ export interface GhosttyFocusOpts {
   /** Session id — fallback route to the transcript (derived path) for
    *  sessions whose event log predates the transcript stamp. */
   sessionId?: string;
+  /** Session pid. Its controlling tty IS the tab's pty, so the tab can be
+   *  identified deterministically: write a marker title to /dev/<tty>, click
+   *  the menu item bearing it, restore. Survives any tab reordering. */
+  pid?: number;
   /** Position among UNTITLED interactive sessions (start order) + their
-   *  total. Untitled tabs all read "Claude Code", so position within that
-   *  subset is the only join key; the click is refused unless the untitled
-   *  tab and session counts agree. Titled sessions never use this. */
+   *  total — last-resort ordinal matching when the tty route fails. The
+   *  click is refused unless the untitled tab and session counts agree. */
   tabOrdinal?: number;
   tabCount?: number;
 }

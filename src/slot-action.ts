@@ -208,6 +208,7 @@ export class SlotAction extends SingletonAction {
         origin: slot?.origin ?? "wsl",
         transcriptPath: slot?.transcriptPath,
         sessionId: slot?.sessionId,
+        pid: slot?.pid,
         tabOrdinal: slot?.tabOrdinal,
         tabCount: slot?.tabCount,
       });
