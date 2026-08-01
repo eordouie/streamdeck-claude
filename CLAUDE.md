@@ -169,7 +169,16 @@ press — landing on the tab is the feedback.
 Key layout and key behaviours live in the dotfiles repo, deliberately, so this
 fork's diff against upstream stays upstreamable:
 
-- `~/Projects/dotfiles/streamdeck/layout.toml` — all 15 keys declared.
+- `~/Projects/dotfiles/streamdeck/layout.toml` — 9 keys declared: the five
+  `com.julien.claudesessions.slot` entries on row 0 (this plugin), plus four
+  `kind = "signal"` entries on rows 1-2 belonging to the sibling
+  `com.eordouie.decksignals` plugin (`~/Projects/deck-signals`) —
+  `signal = "meeting" | "slack" | "github" | "repos"`, mapped to that
+  plugin's action UUIDs by `build_claude_page.py`. The `command` kind/action
+  still exists in both files but is currently unused on this deck: every
+  command key was retired in favor of deck-signals' ambient keys (see that
+  repo's design spec for the rule that decided it) and remains available if
+  a command key is ever wanted again.
 - `~/Projects/dotfiles/streamdeck/apply-layout.sh` — quit app → regenerate the
   page manifest → relaunch. `--dry-run` validates without writing.
 - `~/Projects/dotfiles/streamdeck/scripts/*.sh` — what command keys run.
