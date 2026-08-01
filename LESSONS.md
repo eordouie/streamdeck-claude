@@ -164,12 +164,28 @@ arithmetic:
   baby blinked in lockstep with the parent, which is precisely what the offset
   existed to prevent. Any stagger has to be checked modulo the period it is
   spreading across, not just eyeballed for distinctness.
-- **With N poses and more than N members, sharing a pose is unavoidable — so
-  stagger the transitions instead.** The leg cycle has two poses and switches
-  every 3 frames, giving only three distinct switch phases. Frame offsets that
-  are multiples of 3 put a baby's stride change on the exact frame as the
-  parent's: opposite pose, identical rhythm, which is what "in sync" looks like
-  in motion. Offsets 1, 2, 4 keep every baby off the parent's switch frames.
+- **An offset cannot desynchronise more members than the cycle has residues.**
+  The leg cycle switches every 3 frames, so it has exactly three residues. The
+  parent takes one, leaving two for three babies — by pigeonhole two must
+  share. Two offsets sharing a residue differ by a multiple of 3, which pins
+  them to the same switch frame forever: identical pose if the multiple is
+  even, exactly mirrored if it is odd. **Mirrored-and-locked is still locked**
+  — opposite pose, identical rhythm, which is what "in sync" looks like in
+  motion.
 
-Both were verified by printing the phases and the switch frames, not by looking
-at a render. A still frame cannot show a rhythm.
+  The first fix here was offsets `[1, 2, 4]`, chosen so none was a multiple of
+  3. That correctly unlocked every baby from the *parent* and quietly locked
+  babies 1 and 3 to *each other*, because `4 - 1 = 3`. Fixing one pairing in a
+  set is not fixing the set: with N members every pair needs checking, not just
+  every member against the leader.
+
+  The way out is to stop offsetting a shared cycle and give each member its own
+  cadence — here `[94, 83, 101]` ms per leg unit, so step periods of 282 / 249 /
+  303 ms drift against the parent's 360 ms and against each other. No pigeonhole
+  applies to distinct periods. It is also the physically right answer: small
+  animals take quicker steps.
+
+All three were found by printing the phases, the switch frames, and a
+pose-agreement matrix over a long sample — never by looking at a render. A
+still frame cannot show a rhythm, and the mirror-lock in particular looks
+*correct* in every individual frame.

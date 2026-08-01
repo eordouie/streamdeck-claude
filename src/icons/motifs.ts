@@ -243,22 +243,34 @@ const FAMILY_TAILGAP = 55;
  *  offsets exist to prevent. */
 const blinkSpread = (i: number): number => ((i + 1) * BLINK_PERIOD_MS) / (BABY_COUNT + 1) + i * 130;
 
-/** Frame offsets for the babies' legs. Never a multiple of 3: the leg cycle
- *  switches every 3 frames, so a multiple lands a baby's stride change on the
- *  exact frame as the parent's — opposite pose, identical rhythm, which is
- *  what "in sync" actually looks like in motion. With only two leg poses some
- *  members inevitably share one at any instant; what has to differ is *when
- *  they change*. */
-const LEG_OFFSETS = [1, 2, 4] as const;
+/** Baby leg cadences, in ms per unit of the leg cycle. The parent's legs ride
+ *  the 12-frame counter — 3 frames x 120 ms, a 360 ms step. Babies are smaller
+ *  and step quicker, which is how small animals actually walk and, less
+ *  obviously, the only way to desynchronise three of them.
+ *
+ *  Frame offsets cannot do it, however carefully chosen. The leg cycle
+ *  switches every 3 frames, so it has exactly three residues; the parent
+ *  occupies one, leaving two for three babies. By pigeonhole two must share a
+ *  residue — and two offsets sharing a residue differ by a multiple of 3,
+ *  which pins them to the same switch frame forever: identical pose if the
+ *  multiple is even, exactly mirrored if it is odd. Mirrored-and-locked is
+ *  still locked. The first attempt here was `[1, 2, 4]`, and `4 - 1 = 3` did
+ *  precisely that to the first and third baby.
+ *
+ *  Distinct cadences have no such pigeonhole. Times 3, these give step periods
+ *  of 282 / 249 / 303 ms against the parent's 360 ms — no two share a small
+ *  common multiple, so they drift continuously instead of locking. */
+const BABY_LEG_TICK_MS = [94, 83, 101] as const;
 
 /** The slot's mascot walking with a few small copies of itself in tow — the
  *  `subagent` state's answer to `slotCharacterWalk`.
  *
  *  The family travels as one group (same direction, same pace: delegated work
- *  moves with you), but each member runs its own frame and blink phase. Shared
+ *  moves with you), but every member runs its own gait and blink phase. Shared
  *  phase is what makes a repeated sprite read as one object stamped N times
- *  rather than N individuals, so the offsets are the whole point: legs land at
- *  different moments and nobody blinks in unison.
+ *  rather than N individuals, so the desync is the whole point: the babies
+ *  step quicker than the parent and than each other, and nobody blinks in
+ *  unison. See BABY_LEG_TICK_MS for why cadence rather than offset.
  *
  *  Babies are scaled about `(72, footLine)` — the key's horizontal centre and
  *  the mascot's own shadow line — so they shrink toward the ground rather than
@@ -275,7 +287,11 @@ export function subagentWalk(frame: number, _color: string, slot?: number): stri
     // Behind the parent is opposite the direction of travel, so the family
     // follows rather than leads whichever way the character faces.
     const back = PARENT_W / 2 + BABY_GAP + BABY_W / 2 + i * (BABY_W + BABY_GAP);
-    const body = draw(frame + LEG_OFFSETS[i % LEG_OFFSETS.length], slotBlinkPhase(n) + blinkSpread(i));
+    // Wall-clock rather than the shared counter, so each baby's gait runs on
+    // its own clock. Monotonic and unbounded, which both channels inside the
+    // mascot handle: legs take it mod 6, breathing mod 12.
+    const legFrame = Math.floor(Date.now() / BABY_LEG_TICK_MS[i % BABY_LEG_TICK_MS.length]);
+    const body = draw(legFrame, slotBlinkPhase(n) + blinkSpread(i));
     const x = (pivotX - dir * back).toFixed(2);
     family += `\n<g transform="translate(${x} ${pivotY.toFixed(2)}) scale(${BABY_SCALE})">${body}</g>`;
   }
