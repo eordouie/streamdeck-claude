@@ -283,7 +283,8 @@ function elephantIdleLook(frame: number, blinkPhaseMs: number): string {
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
   const c = "#9fa8ba";
-  const ear = "#b8c0cf";
+  const ear = "#c6cedd";
+  const tuft = "#5f6878";
   const pink = "#f2a6b3";
   const stepA = Math.floor(frame / 3) % 2 === 1;
   const leg = (x: number, planted: boolean) =>
@@ -300,12 +301,12 @@ function elephantIdleLook(frame: number, blinkPhaseMs: number): string {
 ${legs}
 <g transform="translate(0 ${bob})">
 <g transform="translate(6.5 10) scale(1 ${breatheY}) translate(-6.5 -10)">
-<rect x="13" y="5" width="1" height="3" fill="${ear}"/>
+<rect x="13" y="4" width="1" height="4" fill="${c}"/>\n<rect x="13" y="8" width="1" height="1" fill="${tuft}"/>
 <rect x="4" y="4" width="9" height="7" fill="${c}"/>
 <rect x="0" y="2" width="5" height="5" fill="${c}"/>
 ${trunk}
-<rect x="3" y="3" width="3" height="4" fill="${ear}"/>
-<rect x="4" y="4" width="1" height="1" fill="${pink}"/>
+<rect x="4" y="2" width="3" height="5" fill="${ear}"/>
+<rect x="5" y="4" width="1" height="1" fill="${pink}"/>
 <g transform="translate(1.5 4.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-1.5 -4.5)">
 <rect x="1" y="4" width="1" height="1" fill="#000"/>
 </g>
