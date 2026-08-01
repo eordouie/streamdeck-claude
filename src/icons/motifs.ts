@@ -133,8 +133,8 @@ export function slotCharacterIdle(frame: number, color: string, slot?: number): 
 }
 
 /** Blink cadence shared by every mascot: a quick ~150 ms closure every
- *  ~2.2 s — lively without being twitchy. */
-const BLINK_PERIOD_MS = 2200;
+ *  ~3.4 s — lively without being twitchy. */
+const BLINK_PERIOD_MS = 3400;
 const BLINK_CLOSED_MS = 150;
 
 const blinkScaleY = (phaseMs: number): string =>
