@@ -97,6 +97,10 @@ export interface SessionInfo {
   terminal: TerminalKind;
   /** Transcript path (from the event-log SessionStart stamp); "" when unknown. */
   transcriptPath: string;
+  /** True when the session has a generated/custom title — its tab is named
+   *  after it, so slot-press focus matches by title. Untitled sessions' tabs
+   *  all read "Claude Code" and are matched by ordinal instead. */
+  hasTitle: boolean;
   /** "interactive" par défaut si le json n'a pas de champ `kind`. */
   kind: "interactive" | "bg";
   /** Statut brut NON coercé du json pour les bg (ex. "waiting", "running"). undefined pour interactive ; à ne pas confondre avec rawStatus (coercé "busy"|"idle", inutilisé pour les bg). */
@@ -186,18 +190,21 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
         // then the session-json name, then the cwd basename. raw.name is NOT
         // user intent — Claude Code auto-fills it ("projects-61"), and letting
         // it win is exactly what kept every key captioned with the project.
-        let topicLabel = "";
-        if (kind !== "bg" && !derived.promptLabel) {
+        // The title is read unconditionally (stat-cached) because titled-ness
+        // also decides the slot-press focus strategy (title vs ordinal match).
+        let title = "";
+        if (kind !== "bg") {
           const transcriptPath =
             derived.transcriptPath || derivedTranscriptPath(raw.cwd, raw.sessionId);
-          topicLabel = labelFromTitle(await readSessionTitle(transcriptPath));
+          title = await readSessionTitle(transcriptPath);
         }
 
         out.push({
           pid: raw.pid,
           sessionId: raw.sessionId,
           cwd: raw.cwd,
-          label: derived.promptLabel || topicLabel || raw.name?.trim() || basename(raw.cwd),
+          label: derived.promptLabel || labelFromTitle(title) || raw.name?.trim() || basename(raw.cwd),
+          hasTitle: title !== "",
           startedAt: typeof raw.startedAt === "number" ? raw.startedAt : 0,
           rawStatus: status,
           kind,

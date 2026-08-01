@@ -42,12 +42,15 @@ export async function renderAll(
     slotState.origin = entry?.session.origin;
     slotState.terminal = entry?.session.terminal;
     slotState.transcriptPath = entry?.session.transcriptPath;
-    // Ordinal among interactive (tab-hosted) sessions in display order — bg
-    // agents and finished carry-overs have no tab, so they don't count.
-    const isTabHosted = (e: typeof entry) => e !== undefined && e.session.kind !== "bg" && e.state !== "finished";
-    slotState.tabCount = entries.filter(isTabHosted).length;
-    slotState.tabOrdinal = isTabHosted(entry)
-      ? entries.slice(0, slotIndex - 1).filter(isTabHosted).length
+    // Ordinal among UNTITLED interactive sessions in display order — their
+    // tabs all read "Claude Code", so position is the only join key. Titled
+    // sessions match by title and never use the ordinal; bg agents and
+    // finished carry-overs have no tab at all.
+    const isUntitledTab = (e: typeof entry) =>
+      e !== undefined && e.session.kind !== "bg" && e.state !== "finished" && !e.session.hasTitle;
+    slotState.tabCount = entries.filter(isUntitledTab).length;
+    slotState.tabOrdinal = isUntitledTab(entry)
+      ? entries.slice(0, slotIndex - 1).filter(isUntitledTab).length
       : undefined;
     slotState.pid = entry?.session.pid;
     // entry undefined (slot vide) → killable=true, sans risque : onKeyDown sort tôt sur un slot vide avant de lire ce flag.

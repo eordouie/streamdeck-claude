@@ -36,8 +36,8 @@ export async function focusTerminalForSession(opts: {
   /** Session id — lets backends derive the transcript path for sessions that
    *  predate the transcript stamp. */
   sessionId?: string;
-  /** Position among interactive sessions (start order) + their total — for
-   *  ordinal tab matching when the session has no title yet. */
+  /** Position among UNTITLED interactive sessions (start order) + their
+   *  total — for ordinal tab matching while the session has no title yet. */
   tabOrdinal?: number;
   tabCount?: number;
 }): Promise<FocusResult> {

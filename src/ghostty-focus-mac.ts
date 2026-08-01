@@ -134,10 +134,11 @@ async function clickWindowMenuTab(title: string): Promise<{ ok: true } | { ok: f
 }
 
 /** Ordinal fallback for untitled sessions: enumerate the Window menu, take the
- *  tab section (everything after "Arrange in Front"), keep claude tabs (names
- *  led by a status glyph — braille spinner or ✳-style star), and click the
- *  item at `ordinal` — but only when the claude-tab count equals the
- *  interactive-session count, otherwise the position mapping is untrustworthy. */
+ *  tab section (everything after "Arrange in Front"), keep UNTITLED claude
+ *  tabs (status glyph + the default "Claude Code" name — titled tabs sit
+ *  anywhere in the strip, so mixing them in couples the mapping to tab order),
+ *  and click the item at `ordinal` among them — but only when that count
+ *  equals the untitled-session count, otherwise the mapping is untrustworthy. */
 async function clickClaudeTabByOrdinal(
   ordinal: number,
   sessionCount: number,
@@ -171,11 +172,11 @@ async function clickClaudeTabByOrdinal(
   });
   const anchor = rows.findIndex((row) => row.name === "Arrange in Front");
   if (anchor < 0) return { ok: false, error: "no-tab-section" };
-  // Claude tabs: status glyph (non-ASCII) + space + title. Plain-shell tabs
-  // (cwd/program names) don't carry the prefix.
-  const claudeTabs = rows.slice(anchor + 1).filter((row) => /^[^\x00-\x7F] /.test(row.name));
+  // Untitled claude tabs: status glyph (non-ASCII) + the default name. Titled
+  // tabs and plain-shell tabs are excluded from the position mapping.
+  const claudeTabs = rows.slice(anchor + 1).filter((row) => /^[^\x00-\x7F] Claude Code$/.test(row.name));
   if (claudeTabs.length !== sessionCount) {
-    return { ok: false, error: `tab-count-mismatch (tabs=${claudeTabs.length} sessions=${sessionCount})` };
+    return { ok: false, error: `tab-count-mismatch (untitled tabs=${claudeTabs.length} sessions=${sessionCount})` };
   }
   const target = claudeTabs[ordinal];
   if (!target) return { ok: false, error: `ordinal-out-of-range (${ordinal})` };
