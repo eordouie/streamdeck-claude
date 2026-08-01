@@ -184,7 +184,7 @@ function sauropodIdleLook(frame: number, blinkPhaseMs: number): string {
 <rect x="14" y="6" width="1" height="2" fill="${c}"/>
 <rect x="3" y="5" width="2" height="2" fill="${c}"/>
 <rect x="2" y="2" width="2" height="4" fill="${c}"/>
-<rect x="0" y="0" width="3" height="2" fill="${c}"/>
+<rect x="0" y="0" width="3" height="3" fill="${c}"/>
 <rect x="5" y="7" width="1" height="1" fill="${spot}"/>
 <rect x="8" y="7" width="1" height="1" fill="${spot}"/>
 <rect x="11" y="8" width="1" height="1" fill="${spot}"/>
