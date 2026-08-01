@@ -10,22 +10,12 @@ export interface GhosttyFocusOpts {
    *  "ghostty" dispatch; left false in the "unknown" back-compat chain so a
    *  guess never raises an app the session may not live in. */
   activateOnMiss?: boolean;
-  /** Claude Code transcript path (from the SessionStart hook stamp). Mined
-   *  for the session's customTitle/aiTitle — the exact string the tab is
-   *  named — enabling a deterministic Window-menu jump. */
-  transcriptPath?: string;
-  /** Session id — fallback route to the transcript (derived path) for
-   *  sessions whose event log predates the transcript stamp. */
-  sessionId?: string;
-  /** Session pid. Its controlling tty IS the tab's pty, so the tab can be
-   *  identified deterministically: write a marker title to /dev/<tty>, click
-   *  the menu item bearing it, restore. Survives any tab reordering. */
+  /** Session pid — its controlling tty IS the tab, so a drifted title can be
+   *  re-stamped and matched again. */
   pid?: number;
-  /** Position among UNTITLED interactive sessions (start order) + their
-   *  total — last-resort ordinal matching when the tty route fails. The
-   *  click is refused unless the untitled tab and session counts agree. */
-  tabOrdinal?: number;
-  tabCount?: number;
+  /** The unique name the plugin stamps on this session's tab (tab-title.ts).
+   *  Focus is an EXACT match on it — no suffix or ordinal guessing. */
+  canonicalTitle?: string;
 }
 
 /**

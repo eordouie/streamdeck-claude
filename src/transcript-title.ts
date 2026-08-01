@@ -46,14 +46,14 @@ export async function readSessionTitle(path: string): Promise<string> {
   try {
     const fh = await open(path, "r");
     try {
-      const tail = Buffer.alloc(Math.min(CHUNK, size));
+      const tail = new Uint8Array(Math.min(CHUNK, size));
       await fh.read(tail, 0, tail.length, Math.max(0, size - tail.length));
-      let text = tail.toString("utf8");
+      let text = Buffer.from(tail).toString("utf8");
       title = lastJsonString(text, "customTitle") || lastJsonString(text, "aiTitle");
       if (!title && size > CHUNK) {
-        const head = Buffer.alloc(CHUNK);
+        const head = new Uint8Array(CHUNK);
         await fh.read(head, 0, head.length, 0);
-        text = head.toString("utf8");
+        text = Buffer.from(head).toString("utf8");
         title = lastJsonString(text, "customTitle") || lastJsonString(text, "aiTitle");
       }
     } finally {

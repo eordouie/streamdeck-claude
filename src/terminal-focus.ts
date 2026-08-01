@@ -30,28 +30,21 @@ export async function focusTerminalForSession(opts: {
   cwd: string;
   terminal: TerminalKind;
   origin: SessionOrigin;
-  /** Claude Code transcript path — lets title-based backends (Ghostty) look
-   *  up the session's tab title. */
-  transcriptPath?: string;
-  /** Session id — lets backends derive the transcript path for sessions that
-   *  predate the transcript stamp. */
-  sessionId?: string;
   /** Session pid — its controlling tty IS the tab, so backends can mark the
    *  tab deterministically (see ghostty-focus-mac). */
   pid?: number;
-  /** Position among UNTITLED interactive sessions (start order) + their
-   *  total — last-resort ordinal matching when the tty route fails. */
-  tabOrdinal?: number;
-  tabCount?: number;
+  /** The unique name the plugin stamps on this session's tab — Ghostty focus
+   *  matches it exactly. */
+  canonicalTitle?: string;
 }): Promise<FocusResult> {
-  const { cwd, terminal, origin, transcriptPath, sessionId, pid, tabOrdinal, tabCount } = opts;
+  const { cwd, terminal, origin, pid, canonicalTitle } = opts;
   switch (terminal) {
     case "warp":
       return focusWarpTabForCwd(cwd);
     case "vscode":
       return focusVscodeWindowForCwd(cwd, origin);
     case "ghostty":
-      return focusGhosttyTabForCwd(cwd, origin, { activateOnMiss: true, transcriptPath, sessionId, pid, tabOrdinal, tabCount });
+      return focusGhosttyTabForCwd(cwd, origin, { activateOnMiss: true, pid, canonicalTitle });
     case "iterm":
       return { matched: false, reason: "iterm-not-implemented" };
     case "other":
@@ -63,7 +56,7 @@ export async function focusTerminalForSession(opts: {
       const vscode = await focusVscodeWindowForCwd(cwd, origin);
       if (vscode.matched) return vscode;
       streamDeck.logger.info(`focus: unknown terminal, vscode miss (${vscode.reason}); trying ghostty`);
-      return focusGhosttyTabForCwd(cwd, origin, { transcriptPath, sessionId, pid, tabOrdinal, tabCount });
+      return focusGhosttyTabForCwd(cwd, origin, { pid, canonicalTitle });
     }
   }
 }

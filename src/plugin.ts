@@ -9,6 +9,7 @@ import { renderAll } from "./render-loop.js";
 import { wipeAllEventLogs, wipeSessionEventLog, type SessionOrigin } from "./sessions.js";
 import { killSession } from "./kill-session.js";
 import { checkHooks, HOOK_FIX_HINT } from "./hook-check.js";
+import { ensureTabTitles } from "./tab-title.js";
 
 streamDeck.logger.setLevel(LogLevel.DEBUG);
 
@@ -25,6 +26,8 @@ async function runSlowTick(): Promise<void> {
   try {
     const entries = await tracker.tick(slotAction.orderedActions().length);
     await renderAll(slotAction, entries, frame);
+    // Own each tab's title so slot-press focus can match it exactly.
+    await ensureTabTitles(entries.map((e) => e.session));
   } catch (err) {
     streamDeck.logger.error("tick failed", err);
   } finally {

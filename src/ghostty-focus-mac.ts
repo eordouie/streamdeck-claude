@@ -1,28 +1,24 @@
-import { readFile, writeFile } from "node:fs/promises";
 import streamDeck from "@elgato/streamdeck";
-import { derivedTranscriptPath, lastJsonString } from "./transcript-title.js";
 import type { SessionOrigin } from "./sessions.js";
 import type { FocusResult } from "./terminal-focus.js";
 import type { GhosttyFocusOpts } from "./ghostty-focus.js";
-import { pickBestWindow } from "./vscode-window-match.js";
 import { spawnCapture } from "./spawn-capture.js";
+import { ttyForPid, writeTabTitle } from "./tab-title.js";
 
 const GHOSTTY_BUNDLE_ID = "com.mitchellh.ghostty";
 
 /**
- * Select the Ghostty tab hosting the session, on macOS. Three tiers:
+ * Select the Ghostty tab hosting the session, on macOS.
  *
- * 1. **Window-menu click by session title.** Claude Code names the tab after
- *    the session's AI-generated title (spinner/✳ prefix + title), and Ghostty
- *    lists every tab — background ones included — at the bottom of its Window
- *    menu. The title is mined from the session transcript (`customTitle`
- *    falling back to `aiTitle`); clicking the menu item whose name ends with
- *    it selects that exact tab. Deterministic, and immune to the fact that
- *    background native tabs are NOT enumerable as AX windows.
- * 2. **AX window scan by cwd tokens** — only reaches frontmost-per-window
- *    tabs, kept as a cheap fallback for sessions without a transcript stamp.
- * 3. **App activation** (`open -b`, no Apple Events needed) when
- *    `activateOnMiss` is set — the user lands in Ghostty and picks the tab.
+ * The plugin OWNS each tab's title (see tab-title.ts): every live session's
+ * tab carries its unique canonical name, and Claude Code's own animated
+ * title is disabled. So the jump is an exact Window-menu match — no
+ * suffix/ordinal guessing, immune to tab reordering and manually opened
+ * tabs. Ghostty lists every tab in that menu, background ones included,
+ * which matters because background native tabs are NOT AX windows.
+ *
+ * Ladder: exact canonical-title click → re-stamp the tty and retry (covers a
+ * title that drifted) → app activation. Never guesses a tab.
  *
  * All AX paths require Stream Deck.app to hold Accessibility permission.
  */
@@ -37,82 +33,38 @@ export async function focusGhosttyTabOnMac(
     return { matched: false, reason: `${reason}; ${activated ? "app-activated" : "activate-failed"}` };
   };
 
-  // Tier 1: deterministic Window-menu jump by session title. Sessions with
-  // no generated topic yet (tab still named "Claude Code") fall to ordinal
-  // matching instead: the Window menu lists tabs in creation order and slots
-  // are assigned in session-start order, so position N ↔ position N — valid
-  // only while the tab and session counts agree.
-  const title = await sessionTitle(opts.transcriptPath, cwd, opts.sessionId);
-  // Activate first: raising the app is wanted on success anyway, and a
-  // menu interaction on a frontmost app is the reliable path.
+  const canonical = opts.canonicalTitle ?? "";
+  if (!canonical) return miss("no-canonical-title");
+
+  // Raising the app first is wanted on success anyway, and a menu interaction
+  // on a frontmost app is the reliable path.
   await activateApp();
-  if (title) {
-    const clicked = await clickWindowMenuTab(title);
-    if (clicked.ok) return { matched: true, reason: `menu title="${title}"` };
-    streamDeck.logger.info(`ghostty menu miss (${clicked.error}) title="${title}"`);
-    // fall through with the app already raised
-  }
-  // Tier 1b: deterministic tty-marker jump. The session pid's controlling tty
-  // IS the tab's pty — write a marker title straight to the device, click the
-  // menu item bearing it, restore. Identifies the exact tab no matter how the
-  // strip has been reordered.
+
+  const first = await clickWindowMenuTabExact(canonical);
+  if (first.ok) return { matched: true, reason: `menu exact="${canonical}"` };
+
+  // The tab's title drifted (shell prompt, user edit, session started before
+  // the plugin owned titles): re-stamp it through the session's tty and retry.
   if (opts.pid !== undefined) {
-    const marked = await clickTabByTtyMarker(opts.pid, title || "Claude Code");
-    if (marked.ok) return { matched: true, reason: `tty-marker pid=${opts.pid}` };
-    streamDeck.logger.info(`ghostty tty-marker miss (${marked.error}) pid=${opts.pid}`);
-  }
-  if (opts.tabOrdinal !== undefined && opts.tabCount !== undefined) {
-    const clicked = await clickClaudeTabByOrdinal(opts.tabOrdinal, opts.tabCount);
-    if (clicked.ok) return { matched: true, reason: `menu ordinal=${opts.tabOrdinal + 1}/${opts.tabCount}` };
-    streamDeck.logger.info(`ghostty ordinal miss (${clicked.error}) ordinal=${opts.tabOrdinal + 1}/${opts.tabCount}`);
-  }
-
-  // Tier 2: cwd-token match against enumerable (frontmost-per-window) tabs.
-  const names = await enumerateWindowNames();
-  if (!names.ok) return miss(`enumerate-failed: ${names.error}`);
-  if (names.titles.length === 0) return miss("no-ghostty-windows");
-  const best = pickBestWindow(cwd, names.titles.map((t) => ({ title: t })), origin);
-  if (!best) return miss(`no-match (windows=${names.titles.length})`);
-  const raised = await raiseWindowByName(best.title);
-  if (!raised.ok) return miss(`raise-failed: ${raised.error}`);
-  return { matched: true, reason: `raised title="${best.title}"` };
-}
-
-/** The session's display title: last customTitle (user rename) in the
- *  transcript, else last aiTitle (auto topic). Empty string when unknown.
- *  Prefers the hook-stamped transcript path; falls back to deriving it from
- *  cwd + sessionId (`~/.claude/projects/<encoded-cwd>/<sid>.jsonl`) so
- *  sessions that predate the stamp still resolve. */
-async function sessionTitle(
-  transcriptPath: string | undefined,
-  cwd: string,
-  sessionId: string | undefined,
-): Promise<string> {
-  const candidates: string[] = [];
-  if (transcriptPath) candidates.push(transcriptPath);
-  if (sessionId && cwd) candidates.push(derivedTranscriptPath(cwd, sessionId));
-  for (const path of candidates) {
-    let text: string;
-    try {
-      text = await readFile(path, "utf8");
-    } catch {
-      continue;
+    const dev = await ttyForPid(opts.pid);
+    if (dev && (await writeTabTitle(dev, canonical))) {
+      await new Promise((r) => setTimeout(r, 250));
+      const second = await clickWindowMenuTabExact(canonical);
+      if (second.ok) return { matched: true, reason: `menu exact="${canonical}" (re-stamped)` };
+      streamDeck.logger.info(`ghostty exact miss after re-stamp (${second.error}) title="${canonical}"`);
+      return miss(`no-tab-named "${canonical}"`);
     }
-    const title = lastJsonString(text, "customTitle") || lastJsonString(text, "aiTitle");
-    if (title) return title;
   }
-  return "";
+  streamDeck.logger.info(`ghostty exact miss (${first.error}) title="${canonical}"`);
+  return miss(`no-tab-named "${canonical}"`);
 }
 
-/** Click the Window-menu item whose name ends with `title` (tab names carry a
- *  spinner/✳ status prefix ahead of the session title).
+/** Click the Window-menu item whose name is EXACTLY `title`.
  *
- *  The working-state spinner ANIMATES inside the menu item name, and item
- *  specifiers re-resolve by name on access — a `whose name ends with` result
- *  clicked a beat later dies with -1728 when the spinner has moved on. So:
- *  read `name of menu items` as one atomic list, find the index locally, and
- *  click by NUMERIC index, which never re-resolves a name. */
-async function clickWindowMenuTab(title: string): Promise<{ ok: true } | { ok: false; error: string }> {
+ *  Reads `name of menu items` as one atomic list and clicks by numeric index:
+ *  per-item specifiers re-resolve by NAME on access, which dies with -1728 if
+ *  the name changes in between. */
+async function clickWindowMenuTabExact(title: string): Promise<{ ok: true } | { ok: false; error: string }> {
   // AppleScript string literals don't honour backslash escapes; embed any
   // double-quote via the `quote` keyword instead.
   const escaped = title.replace(/"/g, '" & quote & "');
@@ -125,7 +77,7 @@ async function clickWindowMenuTab(title: string): Promise<{ ok: true } | { ok: f
         repeat with i from 1 to count of ns
           set n to item i of ns
           if n is not missing value then
-            if n ends with "${escaped}" then
+            if (n as text) is "${escaped}" then
               set idx to i
               exit repeat
             end if
@@ -133,149 +85,6 @@ async function clickWindowMenuTab(title: string): Promise<{ ok: true } | { ok: f
         end repeat
         if idx is 0 then return "ERR:no-menu-match"
         click menu item idx of menu "Window" of menu bar item "Window" of menu bar 1
-      end tell
-      return "OK"
-    end tell
-  `;
-  const r = await runOsa(script, 4000);
-  if (!r.ok) return { ok: false, error: r.error };
-  return r.out === "OK" ? { ok: true } : { ok: false, error: r.out };
-}
-
-/** Deterministic tab jump via the session's tty. Writing an OSC 2 title
- *  sequence to /dev/<tty> renames THAT tab (it's the pty's output path — no
- *  interference with the TUI reading stdin), so a unique marker makes the tab
- *  findable in the Window menu regardless of strip order. The prior title is
- *  restored afterwards; Claude repaints its own title on the next state
- *  change anyway. */
-async function clickTabByTtyMarker(
-  pid: number,
-  restoreTitle: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const ps = await spawnCapture("/bin/ps", ["-o", "tty=", "-p", String(pid)], { timeoutMs: 2000 });
-  const tty = ps.stdout.trim();
-  if (ps.err || ps.code !== 0 || !/^tty\w+$/.test(tty)) {
-    return { ok: false, error: `no-tty (${ps.err ?? tty ?? "?"})` };
-  }
-  const dev = `/dev/${tty}`;
-  const marker = `cc-mark-${pid}`;
-  try {
-    await writeFile(dev, `\x1b]2;${marker}\x07`);
-  } catch (err) {
-    return { ok: false, error: `tty-write-failed: ${err instanceof Error ? err.message : String(err)}` };
-  }
-  try {
-    // Give the terminal + menu a beat to pick the new name up.
-    await new Promise((r) => setTimeout(r, 300));
-    return await clickWindowMenuTab(marker);
-  } finally {
-    try {
-      await writeFile(dev, `\x1b]2;${restoreTitle}\x07`);
-    } catch {
-      // Tab keeps the marker until Claude repaints — cosmetic only.
-    }
-  }
-}
-
-/** Ordinal fallback for untitled sessions: enumerate the Window menu, take the
- *  tab section (everything after "Arrange in Front"), keep UNTITLED claude
- *  tabs (status glyph + the default "Claude Code" name — titled tabs sit
- *  anywhere in the strip, so mixing them in couples the mapping to tab order),
- *  and click the item at `ordinal` among them — but only when that count
- *  equals the untitled-session count, otherwise the mapping is untrustworthy. */
-async function clickClaudeTabByOrdinal(
-  ordinal: number,
-  sessionCount: number,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  // `name of menu items` is one atomic AX read — iterating item specifiers
-  // one by one dies with -1728 when an animated spinner renames a tab between
-  // snapshot and access (see clickWindowMenuTab).
-  const listScript = `
-    tell application "System Events"
-      if not (exists process "Ghostty") then return "ERR:not-running"
-      tell process "Ghostty"
-        set ns to name of menu items of menu "Window" of menu bar item "Window" of menu bar 1
-      end tell
-    end tell
-    set out to {}
-    repeat with i from 1 to count of ns
-      set n to item i of ns
-      if n is missing value then set n to ""
-      set end of out to (i as text) & tab & n
-    end repeat
-    set AppleScript's text item delimiters to linefeed
-    return out as text
-  `;
-  const r = await runOsa(listScript, 4000);
-  if (!r.ok) return { ok: false, error: r.error };
-  if (r.out.startsWith("ERR:")) return { ok: false, error: r.out };
-
-  const rows = r.out.split("\n").map((line) => {
-    const tab = line.indexOf("\t");
-    return { index: Number(line.slice(0, tab)), name: line.slice(tab + 1) };
-  });
-  const anchor = rows.findIndex((row) => row.name === "Arrange in Front");
-  if (anchor < 0) return { ok: false, error: "no-tab-section" };
-  // Untitled claude tabs: status glyph (non-ASCII) + the default name. Titled
-  // tabs and plain-shell tabs are excluded from the position mapping.
-  const claudeTabs = rows.slice(anchor + 1).filter((row) => /^[^\x00-\x7F] Claude Code$/.test(row.name));
-  if (claudeTabs.length !== sessionCount) {
-    return { ok: false, error: `tab-count-mismatch (untitled tabs=${claudeTabs.length} sessions=${sessionCount})` };
-  }
-  const target = claudeTabs[ordinal];
-  if (!target) return { ok: false, error: `ordinal-out-of-range (${ordinal})` };
-
-  const clickScript = `
-    tell application "System Events"
-      if not (exists process "Ghostty") then return "ERR:not-running"
-      tell process "Ghostty"
-        click menu item ${target.index} of menu "Window" of menu bar item "Window" of menu bar 1
-      end tell
-      return "OK"
-    end tell
-  `;
-  const c = await runOsa(clickScript, 4000);
-  if (!c.ok) return { ok: false, error: c.error };
-  return c.out === "OK" ? { ok: true } : { ok: false, error: c.out };
-}
-
-/** One window (= frontmost tab per window) name per line via System Events. */
-async function enumerateWindowNames(): Promise<
-  { ok: true; titles: string[] } | { ok: false; error: string }
-> {
-  const script = `
-    tell application "System Events"
-      if not (exists process "Ghostty") then return "ERR:not-running"
-      set out to ""
-      repeat with w in windows of process "Ghostty"
-        set out to out & (name of w) & linefeed
-      end repeat
-      return out
-    end tell
-  `;
-  const r = await runOsa(script, 4000);
-  if (!r.ok) return { ok: false, error: r.error };
-  if (r.out.startsWith("ERR:")) return r.out === "ERR:not-running"
-    ? { ok: true, titles: [] }
-    : { ok: false, error: r.out };
-  const titles = r.out.split("\n").map((s) => s.trim()).filter(Boolean);
-  return { ok: true, titles };
-}
-
-/** Activate Ghostty and AXRaise the window whose name matches exactly. */
-async function raiseWindowByName(name: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  const escaped = name.replace(/"/g, '" & quote & "');
-  const script = `
-    tell application "System Events"
-      if not (exists process "Ghostty") then return "ERR:not-running"
-      tell process "Ghostty"
-        set frontmost to true
-        try
-          set target to (first window whose name is "${escaped}")
-          perform action "AXRaise" of target
-        on error
-          return "ERR:window-gone"
-        end try
       end tell
       return "OK"
     end tell

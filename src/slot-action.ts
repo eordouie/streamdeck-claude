@@ -30,13 +30,8 @@ export interface SlotState {
   origin?: SessionOrigin;
   /** Terminal host of the bound session — drives slot-press focus dispatch. */
   terminal?: TerminalKind;
-  /** Transcript path of the bound session — mined for the tab title on press. */
-  transcriptPath?: string;
-  /** Position of this session among interactive (tab-hosted) sessions in
-   *  start order, and their total — drives ordinal tab matching when the
-   *  session has no title yet. */
-  tabOrdinal?: number;
-  tabCount?: number;
+  /** Unique name stamped on this session's tab — focus matches it exactly. */
+  canonicalTitle?: string;
   /** Bound session pid — required to kill the process on a ≥3s hold. */
   pid?: number;
   /** Wall-clock ms du début d'arming (≥LONG_PRESS_MS tenu). undefined = pas en
@@ -206,11 +201,8 @@ export class SlotAction extends SingletonAction {
         cwd,
         terminal: slot?.terminal ?? "unknown",
         origin: slot?.origin ?? "wsl",
-        transcriptPath: slot?.transcriptPath,
-        sessionId: slot?.sessionId,
         pid: slot?.pid,
-        tabOrdinal: slot?.tabOrdinal,
-        tabCount: slot?.tabCount,
+        canonicalTitle: slot?.canonicalTitle,
       });
       // No showOk here: landing on the tab (and the flash clearing) IS the
       // feedback — the green checkmark overlay just adds noise.

@@ -105,6 +105,10 @@ export interface SessionInfo {
   title: string;
   /** First substantial prompt (from the event log) — deck-name context. */
   firstPrompt: string;
+  /** The session's one-time deck word once assigned, else "". Unique among
+   *  live sessions by construction (the namer forbids taken words), which is
+   *  what lets it double as the tab's identity. */
+  deckName: string;
   /** "interactive" par défaut si le json n'a pas de champ `kind`. */
   kind: "interactive" | "bg";
   /** Statut brut NON coercé du json pour les bg (ex. "waiting", "running"). undefined pour interactive ; à ne pas confondre avec rawStatus (coercé "busy"|"idle", inutilisé pour les bg). */
@@ -164,7 +168,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
         const kind: "interactive" | "bg" = raw.kind === "bg" ? "bg" : "interactive";
 
         let derived: DerivedState = {
-          awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "", promptLabel: "",
+          awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "", firstPrompt: "",
         };
         // Un agent bg tourne en headless et ne nourrit pas le pipeline de hooks :
         // son json (status/waitingFor) est la source de vérité. On saute donc
@@ -210,6 +214,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           label: basename(raw.cwd),
           title,
           firstPrompt: derived.firstPrompt,
+          deckName: "",
           startedAt: typeof raw.startedAt === "number" ? raw.startedAt : 0,
           rawStatus: status,
           kind,
@@ -248,6 +253,7 @@ export async function readAllSessions(): Promise<SessionInfo[]> {
     if (s.kind === "bg") return;
     if (words[i]) {
       s.label = words[i];
+      s.deckName = words[i];
     } else {
       maybeName({ sessionId: s.sessionId, firstPrompt: s.firstPrompt, title: s.title, takenWords: taken });
     }
