@@ -39,6 +39,25 @@ changes the deck in place, and `bin/plugin.js` is whatever the last
 `ls -t` is eza-aliased on this machine and does NOT sort by mtime, so use
 `/bin/ls -t` when hunting the newest log.
 
+## Ghostty background tabs are not AX windows — jump via the Window menu
+
+First tab-jump attempt (2026-07-31) enumerated `windows of process
+"Ghostty"` and AXRaised the best title match. It could never work: with N
+native tabs, System Events sees ONE AXStandardWindow per window (the
+frontmost tab); background tabs are simply absent from the AX window list.
+What DOES list every tab — live titles included — is Ghostty's **Window
+menu**; System Events can `click (first menu item whose name ends with
+<title>)` and the right tab is selected, even from the background.
+
+Two supporting facts for the title join:
+- Claude Code names the tab `<spinner|✳> <session title>` where the title is
+  the session's `aiTitle` (or `customTitle` after a rename). It is NOT in
+  `~/.claude/sessions/<pid>.json` (title stays null) but IS in the transcript
+  JSONL as `"aiTitle":"…"` lines — and the hook payload carries
+  `transcript_path`, so stamping it at SessionStart closes the loop.
+- cwd is useless as a join key here: every deck-launched tab starts in the
+  same working directory, so cwd-token scoring is degenerate by design.
+
 ## Elgato's built-in action settings are a private schema
 
 The system actions (Text, Hotkey, Multi Action) declare `PrivateAPI: true`

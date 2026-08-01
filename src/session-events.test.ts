@@ -27,3 +27,19 @@ test("an unrecognised term value is coerced to 'unknown'", () => {
   const log = JSON.stringify({ ts: 1, event: "SessionStart", term: "kitty" });
   assert.equal(reduceEvents(parseEventLog(log)).terminal, "unknown");
 });
+
+test("SessionStart transcript is reduced into DerivedState.transcriptPath and survives a turn", () => {
+  const log = [
+    { ts: 1, event: "SessionStart", term: "ghostty", transcript: "/home/u/.claude/projects/x/abc.jsonl" },
+    { ts: 2, event: "UserPromptSubmit" },
+    { ts: 3, event: "Stop" },
+  ]
+    .map((e) => JSON.stringify(e))
+    .join("\n");
+  assert.equal(reduceEvents(parseEventLog(log)).transcriptPath, "/home/u/.claude/projects/x/abc.jsonl");
+});
+
+test("absent transcript defaults to empty string", () => {
+  const log = JSON.stringify({ ts: 1, event: "SessionStart", term: "ghostty" });
+  assert.equal(reduceEvents(parseEventLog(log)).transcriptPath, "");
+});

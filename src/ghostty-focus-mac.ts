@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import streamDeck from "@elgato/streamdeck";
 import type { SessionOrigin } from "./sessions.js";
 import type { FocusResult } from "./terminal-focus.js";
 import type { GhosttyFocusOpts } from "./ghostty-focus.js";
@@ -7,43 +9,105 @@ import { spawnCapture } from "./spawn-capture.js";
 const GHOSTTY_BUNDLE_ID = "com.mitchellh.ghostty";
 
 /**
- * Select the Ghostty tab matching `cwd` on macOS.
+ * Select the Ghostty tab hosting the session, on macOS. Three tiers:
  *
- * Ghostty tabs are native NSWindow tabs, so System Events sees every tab as
- * its own AXWindow (background tabs included) and AXRaise on one selects it.
- * Titles are whatever the running program set via OSC — Claude Code stamps its
- * own — so matching reuses the tokenized title scorer shared with the VS Code
- * backend. Requires Stream Deck.app to hold Accessibility permission (same
- * prompt the Warp/VS Code paths need).
+ * 1. **Window-menu click by session title.** Claude Code names the tab after
+ *    the session's AI-generated title (spinner/✳ prefix + title), and Ghostty
+ *    lists every tab — background ones included — at the bottom of its Window
+ *    menu. The title is mined from the session transcript (`customTitle`
+ *    falling back to `aiTitle`); clicking the menu item whose name ends with
+ *    it selects that exact tab. Deterministic, and immune to the fact that
+ *    background native tabs are NOT enumerable as AX windows.
+ * 2. **AX window scan by cwd tokens** — only reaches frontmost-per-window
+ *    tabs, kept as a cheap fallback for sessions without a transcript stamp.
+ * 3. **App activation** (`open -b`, no Apple Events needed) when
+ *    `activateOnMiss` is set — the user lands in Ghostty and picks the tab.
  *
- * On a miss with `activateOnMiss`, the app is still brought forward via
- * `open -b` — no Apple Events permission needed — so the user always lands in
- * Ghostty and picks the tab by hand.
+ * All AX paths require Stream Deck.app to hold Accessibility permission.
  */
 export async function focusGhosttyTabOnMac(
   cwd: string,
   origin: SessionOrigin,
   opts: GhosttyFocusOpts = {},
 ): Promise<FocusResult> {
-  const names = await enumerateWindowNames();
   const miss = async (reason: string): Promise<FocusResult> => {
     if (!opts.activateOnMiss) return { matched: false, reason };
     const activated = await activateApp();
     return { matched: false, reason: `${reason}; ${activated ? "app-activated" : "activate-failed"}` };
   };
 
+  // Tier 1: deterministic Window-menu jump by session title.
+  const title = await sessionTitle(opts.transcriptPath);
+  if (title) {
+    // Activate first: raising the app is wanted on success anyway, and a
+    // menu interaction on a frontmost app is the reliable path.
+    await activateApp();
+    const clicked = await clickWindowMenuTab(title);
+    if (clicked.ok) return { matched: true, reason: `menu title="${title}"` };
+    streamDeck.logger.info(`ghostty menu miss (${clicked.error}) title="${title}"`);
+    // fall through to the window scan with the app already raised
+  }
+
+  // Tier 2: cwd-token match against enumerable (frontmost-per-window) tabs.
+  const names = await enumerateWindowNames();
   if (!names.ok) return miss(`enumerate-failed: ${names.error}`);
   if (names.titles.length === 0) return miss("no-ghostty-windows");
-
-  const best = pickBestWindow(cwd, names.titles.map((title) => ({ title })), origin);
+  const best = pickBestWindow(cwd, names.titles.map((t) => ({ title: t })), origin);
   if (!best) return miss(`no-match (windows=${names.titles.length})`);
-
   const raised = await raiseWindowByName(best.title);
   if (!raised.ok) return miss(`raise-failed: ${raised.error}`);
   return { matched: true, reason: `raised title="${best.title}"` };
 }
 
-/** One window (= tab) name per line via System Events. */
+/** The session's display title: last customTitle (user rename) in the
+ *  transcript, else last aiTitle (auto topic). Empty string when unknown. */
+async function sessionTitle(transcriptPath: string | undefined): Promise<string> {
+  if (!transcriptPath) return "";
+  let text: string;
+  try {
+    text = await readFile(transcriptPath, "utf8");
+  } catch {
+    return "";
+  }
+  return lastJsonString(text, "customTitle") || lastJsonString(text, "aiTitle");
+}
+
+/** Last occurrence of `"key":"<value>"` in raw JSONL, JSON-unescaped. */
+function lastJsonString(text: string, key: string): string {
+  const re = new RegExp(`"${key}":"((?:[^"\\\\]|\\\\.)*)"`, "g");
+  let last = "";
+  for (const m of text.matchAll(re)) last = m[1];
+  if (!last) return "";
+  try {
+    return JSON.parse(`"${last}"`) as string;
+  } catch {
+    return "";
+  }
+}
+
+/** Click the Window-menu item whose name ends with `title` (tab names carry a
+ *  spinner/✳ status prefix ahead of the session title). */
+async function clickWindowMenuTab(title: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  // AppleScript string literals don't honour backslash escapes; embed any
+  // double-quote via the `quote` keyword instead.
+  const escaped = title.replace(/"/g, '" & quote & "');
+  const script = `
+    tell application "System Events"
+      if not (exists process "Ghostty") then return "ERR:not-running"
+      tell process "Ghostty"
+        set tabItems to (menu items of menu "Window" of menu bar item "Window" of menu bar 1 whose name ends with "${escaped}")
+        if (count of tabItems) is 0 then return "ERR:no-menu-match"
+        click item 1 of tabItems
+      end tell
+      return "OK"
+    end tell
+  `;
+  const r = await runOsa(script, 4000);
+  if (!r.ok) return { ok: false, error: r.error };
+  return r.out === "OK" ? { ok: true } : { ok: false, error: r.out };
+}
+
+/** One window (= frontmost tab per window) name per line via System Events. */
 async function enumerateWindowNames(): Promise<
   { ok: true; titles: string[] } | { ok: false; error: string }
 > {
@@ -68,8 +132,6 @@ async function enumerateWindowNames(): Promise<
 
 /** Activate Ghostty and AXRaise the window whose name matches exactly. */
 async function raiseWindowByName(name: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  // AppleScript string literals don't honour backslash escapes; embed any
-  // double-quote in the title via the `quote` keyword instead.
   const escaped = name.replace(/"/g, '" & quote & "');
   const script = `
     tell application "System Events"

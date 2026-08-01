@@ -30,15 +30,18 @@ export async function focusTerminalForSession(opts: {
   cwd: string;
   terminal: TerminalKind;
   origin: SessionOrigin;
+  /** Claude Code transcript path — lets title-based backends (Ghostty) look
+   *  up the session's tab title. */
+  transcriptPath?: string;
 }): Promise<FocusResult> {
-  const { cwd, terminal, origin } = opts;
+  const { cwd, terminal, origin, transcriptPath } = opts;
   switch (terminal) {
     case "warp":
       return focusWarpTabForCwd(cwd);
     case "vscode":
       return focusVscodeWindowForCwd(cwd, origin);
     case "ghostty":
-      return focusGhosttyTabForCwd(cwd, origin, { activateOnMiss: true });
+      return focusGhosttyTabForCwd(cwd, origin, { activateOnMiss: true, transcriptPath });
     case "iterm":
       return { matched: false, reason: "iterm-not-implemented" };
     case "other":
@@ -50,7 +53,7 @@ export async function focusTerminalForSession(opts: {
       const vscode = await focusVscodeWindowForCwd(cwd, origin);
       if (vscode.matched) return vscode;
       streamDeck.logger.info(`focus: unknown terminal, vscode miss (${vscode.reason}); trying ghostty`);
-      return focusGhosttyTabForCwd(cwd, origin);
+      return focusGhosttyTabForCwd(cwd, origin, { transcriptPath });
     }
   }
 }

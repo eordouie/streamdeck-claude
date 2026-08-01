@@ -45,7 +45,13 @@ fi
 # Terminal host, captured once at SessionStart for the focus-on-press feature.
 # $TERM_PROGRAM is set by the terminal; VSCODE_* survive tmux/screen overwriting
 # TERM_PROGRAM with "tmux". Canonical values mirror src/terminal-kind.ts.
+# The transcript path is captured alongside: the plugin mines it for the
+# session's aiTitle/customTitle, which is what the terminal tab is named.
 TERM_KIND=""
+TRANSCRIPT=""
+if [ "$EVENT" = "SessionStart" ]; then
+  TRANSCRIPT="$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
+fi
 if [ "$EVENT" = "SessionStart" ]; then
   if [ "${TERM_PROGRAM:-}" = "vscode" ] || [ -n "${VSCODE_PID:-}" ] || [ -n "${VSCODE_GIT_IPC_HANDLE:-}" ]; then
     TERM_KIND="vscode"
@@ -81,12 +87,14 @@ jq -nc \
   --arg tool "$TOOL_NAME" \
   --arg notifType "$NOTIF_TYPE" \
   --arg term "$TERM_KIND" \
+  --arg transcript "$TRANSCRIPT" \
   --argjson todos "$TODOS_JSON" \
   '{ts: $ts, event: $event}
-   | (if $tool      != ""   then . + {tool:      $tool}      else . end)
-   | (if $notifType != ""   then . + {notifType: $notifType} else . end)
-   | (if $term      != ""   then . + {term:      $term}      else . end)
-   | (if $todos     != null then . + {todos:     $todos}     else . end)' \
+   | (if $tool       != ""   then . + {tool:       $tool}       else . end)
+   | (if $notifType  != ""   then . + {notifType:  $notifType}  else . end)
+   | (if $term       != ""   then . + {term:       $term}       else . end)
+   | (if $transcript != ""   then . + {transcript: $transcript} else . end)
+   | (if $todos      != null then . + {todos:      $todos}      else . end)' \
   >> "$TARGET"
 
 echo '{}'

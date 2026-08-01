@@ -30,6 +30,8 @@ export interface SlotState {
   origin?: SessionOrigin;
   /** Terminal host of the bound session — drives slot-press focus dispatch. */
   terminal?: TerminalKind;
+  /** Transcript path of the bound session — mined for the tab title on press. */
+  transcriptPath?: string;
   /** Bound session pid — required to kill the process on a ≥3s hold. */
   pid?: number;
   /** Wall-clock ms du début d'arming (≥LONG_PRESS_MS tenu). undefined = pas en
@@ -166,6 +168,7 @@ export class SlotAction extends SingletonAction {
         cwd,
         terminal: slot?.terminal ?? "unknown",
         origin: slot?.origin ?? "wsl",
+        transcriptPath: slot?.transcriptPath,
       });
       streamDeck.logger.info(`focus(${slot?.terminal ?? "unknown"}): ${res.reason} for cwd=${cwd}`);
       await ev.action.showOk();

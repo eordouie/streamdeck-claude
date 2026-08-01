@@ -21,6 +21,8 @@ export interface SessionEvent {
   todos?: TodoStatus[];
   /** Terminal host, present only on the SessionStart line. */
   term?: string;
+  /** Claude Code transcript path, present only on the SessionStart line. */
+  transcript?: string;
 }
 
 /** What the icon needs, derived from the event log. The session's busy/idle
@@ -43,6 +45,9 @@ export interface DerivedState {
   todos: TodoStatus[];
   /** Which terminal hosts this session (from the SessionStart hook stamp). */
   terminal: TerminalKind;
+  /** Transcript path (from the SessionStart hook stamp); "" when unknown.
+   *  Used to look up the session's title for tab-level focus. */
+  transcriptPath: string;
 }
 
 /** Internal accumulator: same as DerivedState plus `inTurn`, which is true
@@ -54,7 +59,7 @@ interface ReducerState extends DerivedState {
   inTurn: boolean;
 }
 
-const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", inTurn: false };
+const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "", inTurn: false };
 
 export function reduceEvents(events: readonly SessionEvent[]): DerivedState {
   let state = ZERO;
@@ -67,7 +72,7 @@ export function reduceEvents(events: readonly SessionEvent[]): DerivedState {
 function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
   switch (ev.event) {
     case "SessionStart":
-      return { ...ZERO, terminal: normaliseTerm(ev.term) };
+      return { ...ZERO, terminal: normaliseTerm(ev.term), transcriptPath: ev.transcript ?? "" };
 
     case "SessionEnd":
       return ZERO;
@@ -153,6 +158,7 @@ export function parseEventLog(text: string): SessionEvent[] {
           notifType: typeof obj.notifType === "string" ? obj.notifType : undefined,
           todos,
           term: typeof obj.term === "string" ? obj.term : undefined,
+          transcript: typeof obj.transcript === "string" ? obj.transcript : undefined,
         });
       }
     } catch {

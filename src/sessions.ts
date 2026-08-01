@@ -94,6 +94,8 @@ export interface SessionInfo {
   origin: SessionOrigin;
   /** Terminal host (from the event-log SessionStart stamp); drives slot-press focus. */
   terminal: TerminalKind;
+  /** Transcript path (from the event-log SessionStart stamp); "" when unknown. */
+  transcriptPath: string;
   /** "interactive" par défaut si le json n'a pas de champ `kind`. */
   kind: "interactive" | "bg";
   /** Statut brut NON coercé du json pour les bg (ex. "waiting", "running"). undefined pour interactive ; à ne pas confondre avec rawStatus (coercé "busy"|"idle", inutilisé pour les bg). */
@@ -149,7 +151,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
         const kind: "interactive" | "bg" = raw.kind === "bg" ? "bg" : "interactive";
 
         let derived: DerivedState = {
-          awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown",
+          awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "",
         };
         // Un agent bg tourne en headless et ne nourrit pas le pipeline de hooks :
         // son json (status/waitingFor) est la source de vérité. On saute donc
@@ -197,6 +199,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           todos: derived.todos,
           origin: src.origin,
           terminal: derived.terminal,
+          transcriptPath: derived.transcriptPath,
         });
       }),
   );

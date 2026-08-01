@@ -40,6 +40,7 @@ export async function renderAll(
     slotState.sessionId = entry?.session.sessionId;
     slotState.origin = entry?.session.origin;
     slotState.terminal = entry?.session.terminal;
+    slotState.transcriptPath = entry?.session.transcriptPath;
     slotState.pid = entry?.session.pid;
     // entry undefined (slot vide) → killable=true, sans risque : onKeyDown sort tôt sur un slot vide avant de lire ce flag.
     slotState.killable = entry?.session.kind !== "bg";

@@ -10,6 +10,10 @@ export interface GhosttyFocusOpts {
    *  "ghostty" dispatch; left false in the "unknown" back-compat chain so a
    *  guess never raises an app the session may not live in. */
   activateOnMiss?: boolean;
+  /** Claude Code transcript path (from the SessionStart hook stamp). Mined
+   *  for the session's customTitle/aiTitle — the exact string the tab is
+   *  named — enabling a deterministic Window-menu jump. */
+  transcriptPath?: string;
 }
 
 /**

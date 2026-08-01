@@ -110,10 +110,14 @@ This checkout is Ehsan's fork (`origin` = eordouie/streamdeck-claude,
 `upstream` = JulienCr). Branch `ghostty-focus` (based on upstream's
 `feat/vscode-terminal-focus`) adds, relative to upstream:
 
-- **ghostty terminal kind** — hook stamps `TERM_PROGRAM=ghostty`;
-  `ghostty-focus(-mac).ts` AXRaises the best title-matched tab (native tab
-  = AXWindow) and, for stamped-ghostty sessions only, activates the app via
-  `open -b` when no title matches.
+- **ghostty terminal kind** — the hook stamps `TERM_PROGRAM=ghostty` AND the
+  session's `transcript_path` at SessionStart. Slot-press focus
+  (`ghostty-focus(-mac).ts`) mines the transcript for the session's
+  `customTitle`/`aiTitle` — the exact string Claude Code names the tab — and
+  clicks the matching Ghostty **Window-menu** item (background native tabs
+  are NOT enumerable as AX windows; the Window menu lists them all).
+  Fallbacks: AX window scan by cwd tokens, then `open -b` app activation
+  (stamped-ghostty sessions only).
 - **`com.julien.claudesessions.command`** (`src/command-action.ts`) — a
   command key whose `{label, script, args, color}` settings are baked into
   the profile; press spawns the script. Exists because Elgato's built-in
