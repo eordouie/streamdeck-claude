@@ -247,15 +247,13 @@ function llamaIdleLook(frame: number, blinkPhaseMs: number): string {
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
   const c = "#ecd9b0";
   const shade = "#c8a165";
-  // Same stroll idiom as the dinos: diagonal leg pairs alternate every 3
-  // frames, lifted legs shorten off the ground, tops tuck under the body
-  // (same fill, so the overlap is invisible), torso bobs on the offbeat.
+  // Same stroll idiom as the dinos: two legs (side view), front and back
+  // alternating every 3 frames, lifted leg shortened off the ground, tops
+  // tucked under the body, torso bob on the offbeat.
   const stepA = Math.floor(frame / 3) % 2 === 0;
   const leg = (x: number, planted: boolean) =>
     `<rect x="${x}" y="12" width="1" height="${planted ? 3 : 2}" fill="${c}"/>`;
-  const legs = stepA
-    ? leg(3, true) + leg(5, false) + leg(8, false) + leg(10, true)
-    : leg(3, false) + leg(5, true) + leg(8, true) + leg(10, false);
+  const legs = stepA ? leg(3, true) + leg(10, false) : leg(3, false) + leg(10, true);
   const bob = stepA ? "0" : "-0.5";
   return `<g transform="translate(46 35) scale(4)">
 <rect x="1" y="15" width="12" height="1" fill="#000" opacity="0.45"/>
