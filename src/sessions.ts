@@ -152,7 +152,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
         const kind: "interactive" | "bg" = raw.kind === "bg" ? "bg" : "interactive";
 
         let derived: DerivedState = {
-          awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "",
+          awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "", promptLabel: "",
         };
         // Un agent bg tourne en headless et ne nourrit pas le pipeline de hooks :
         // son json (status/waitingFor) est la source de vérité. On saute donc
@@ -180,12 +180,13 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           }
         }
 
-        // Key label: explicit session name wins, then the live topic (Claude's
-        // aiTitle/customTitle, compressed to 1-2 significant words), then the
-        // cwd basename. The topic matters most when every session shares one
+        // Key label: explicit session name wins, then the CURRENT discussion
+        // (from the latest substantial prompt — tracks topic changes live),
+        // then Claude's once-generated aiTitle/customTitle, then the cwd
+        // basename. The topic matters most when every session shares one
         // working directory and the project name stops discriminating.
         let topicLabel = "";
-        if (kind !== "bg") {
+        if (kind !== "bg" && !derived.promptLabel) {
           const transcriptPath =
             derived.transcriptPath || derivedTranscriptPath(raw.cwd, raw.sessionId);
           topicLabel = labelFromTitle(await readSessionTitle(transcriptPath));
@@ -195,7 +196,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           pid: raw.pid,
           sessionId: raw.sessionId,
           cwd: raw.cwd,
-          label: raw.name?.trim() || topicLabel || basename(raw.cwd),
+          label: raw.name?.trim() || derived.promptLabel || topicLabel || basename(raw.cwd),
           startedAt: typeof raw.startedAt === "number" ? raw.startedAt : 0,
           rawStatus: status,
           kind,

@@ -17,6 +17,11 @@ test("labelFromTitle handles empty titles", () => {
   assert.equal(labelFromTitle("   "), "");
 });
 
+test("labelFromTitle distills chat prompts", () => {
+  assert.equal(labelFromTitle("when the discussion topic changes update the name too"), "discussion");
+  assert.equal(labelFromTitle("the ghost is not cute enough"), "ghost cute");
+});
+
 test("lastJsonString unescapes and takes the last occurrence", () => {
   const text = '{"aiTitle":"First topic"}\n{"aiTitle":"Second \\"quoted\\" topic"}';
   assert.equal(lastJsonString(text, "aiTitle"), 'Second "quoted" topic');

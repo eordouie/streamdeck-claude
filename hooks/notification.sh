@@ -66,6 +66,14 @@ if [ "$EVENT" = "SessionStart" ]; then
   fi
 fi
 
+# The prompt text (UserPromptSubmit only, clipped to 200 codepoints) feeds the
+# live "current discussion" key label — Claude's own aiTitle is generated once
+# and stays sticky, so it can't track a topic change mid-session.
+PROMPT=""
+if [ "$EVENT" = "UserPromptSubmit" ]; then
+  PROMPT="$(printf '%s' "$INPUT" | jq -r '(.prompt // "") | .[0:200]' 2>/dev/null || true)"
+fi
+
 # jq -nc builds the JSON so embedded quotes/backslashes in tool names can't
 # corrupt the line. Atomic single-write append (line is well under PIPE_BUF).
 # Perl (rather than `date +%s%3N`) because BSD date on macOS doesn't grok %N
@@ -88,12 +96,14 @@ jq -nc \
   --arg notifType "$NOTIF_TYPE" \
   --arg term "$TERM_KIND" \
   --arg transcript "$TRANSCRIPT" \
+  --arg prompt "$PROMPT" \
   --argjson todos "$TODOS_JSON" \
   '{ts: $ts, event: $event}
    | (if $tool       != ""   then . + {tool:       $tool}       else . end)
    | (if $notifType  != ""   then . + {notifType:  $notifType}  else . end)
    | (if $term       != ""   then . + {term:       $term}       else . end)
    | (if $transcript != ""   then . + {transcript: $transcript} else . end)
+   | (if $prompt     != ""   then . + {prompt:     $prompt}     else . end)
    | (if $todos      != null then . + {todos:      $todos}      else . end)' \
   >> "$TARGET"
 

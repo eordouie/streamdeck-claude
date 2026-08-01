@@ -5,6 +5,7 @@
  *  drop/rm pairs. Adding a new state = one case in `applyEvent`. */
 
 import { normaliseTerm, type TerminalKind } from "./terminal-kind.js";
+import { labelFromTitle } from "./transcript-title.js";
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
 const VALID_TODO_STATUS: ReadonlySet<TodoStatus> = new Set(["pending", "in_progress", "completed"]);
@@ -23,6 +24,8 @@ export interface SessionEvent {
   term?: string;
   /** Claude Code transcript path, present only on the SessionStart line. */
   transcript?: string;
+  /** Clipped prompt text, present only on UserPromptSubmit lines. */
+  prompt?: string;
 }
 
 /** What the icon needs, derived from the event log. The session's busy/idle
@@ -48,6 +51,10 @@ export interface DerivedState {
   /** Transcript path (from the SessionStart hook stamp); "" when unknown.
    *  Used to look up the session's title for tab-level focus. */
   transcriptPath: string;
+  /** Key label derived from the most recent SUBSTANTIAL prompt (≥3 words
+   *  with at least one significant one) — tracks the current discussion,
+   *  unlike Claude's once-generated aiTitle. "" until such a prompt lands. */
+  promptLabel: string;
 }
 
 /** Internal accumulator: same as DerivedState plus `inTurn`, which is true
@@ -59,7 +66,7 @@ interface ReducerState extends DerivedState {
   inTurn: boolean;
 }
 
-const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "", inTurn: false };
+const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "", promptLabel: "", inTurn: false };
 
 export function reduceEvents(events: readonly SessionEvent[]): DerivedState {
   let state = ZERO;
@@ -77,12 +84,20 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
     case "SessionEnd":
       return ZERO;
 
-    case "UserPromptSubmit":
+    case "UserPromptSubmit": {
       // A fresh turn always starts with zero in-flight subagents. Resetting
       // subagentDepth here (and at Stop) keeps a missed SubagentStop — a
       // subagent killed or a hook that didn't fire — from leaking across the
       // turn boundary and stranding the session on the "subagent" icon.
-      return { ...state, inTurn: true, awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0 };
+      const next = { ...state, inTurn: true, awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0 };
+      // Trivial prompts ("continue", "done", "yes go ahead") keep the prior
+      // label — only a substantial prompt moves the discussion topic.
+      if (ev.prompt !== undefined && ev.prompt.trim().split(/\s+/).length >= 3) {
+        const label = labelFromTitle(ev.prompt);
+        if (label) next.promptLabel = label;
+      }
+      return next;
+    }
 
     case "Notification":
       // Only an in-turn Notification is a real prompt to the user. After Stop,
@@ -159,6 +174,7 @@ export function parseEventLog(text: string): SessionEvent[] {
           todos,
           term: typeof obj.term === "string" ? obj.term : undefined,
           transcript: typeof obj.transcript === "string" ? obj.transcript : undefined,
+          prompt: typeof obj.prompt === "string" ? obj.prompt : undefined,
         });
       }
     } catch {

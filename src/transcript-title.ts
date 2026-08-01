@@ -66,12 +66,19 @@ export async function readSessionTitle(path: string): Promise<string> {
   return title;
 }
 
-/** Words that carry no meaning on a 12-char key label. */
+/** Words that carry no meaning on a 12-char key label — covers both title
+ *  prose and chat-prompt filler (the label also feeds off raw prompts). */
 const STOPWORDS = new Set([
   "a", "an", "the", "and", "or", "of", "to", "in", "on", "for", "with",
   "from", "into", "onto", "via", "by", "at", "as", "is", "are", "be",
   "set", "setup", "up", "make", "add", "get", "fix", "use", "using",
   "new", "how", "what", "why", "when", "claude", "code", "session",
+  "i", "you", "it", "we", "me", "my", "your", "this", "that", "these",
+  "those", "them", "they", "there", "then", "now", "also", "just",
+  "please", "can", "cant", "could", "should", "would", "will", "wont",
+  "do", "does", "dont", "did", "want", "like", "need", "one", "same",
+  "all", "any", "some", "instead", "change", "changes", "changed",
+  "not", "no", "yes", "ok", "okay", "too", "very", "more", "less",
 ]);
 const MAX_LABEL_CHARS = 12;
 
