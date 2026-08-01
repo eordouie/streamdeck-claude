@@ -98,10 +98,9 @@ export interface SessionInfo {
   terminal: TerminalKind;
   /** Transcript path (from the event-log SessionStart stamp); "" when unknown. */
   transcriptPath: string;
-  /** The session's generated/custom title ("" when none yet). Its tab is
-   *  named after it, so slot-press focus matches titled sessions by title;
-   *  untitled tabs all read "Claude Code" and fall back to tty/ordinal. Also
-   *  part of the one-time deck-name context. */
+  /** The session's Claude-generated/custom title ("" when none yet). Context
+   *  for the one-time deck name; NOT used for tab focus — the plugin stamps
+   *  its own tab titles (see tab-title.ts). */
   title: string;
   /** First substantial prompt (from the event log) — deck-name context. */
   firstPrompt: string;

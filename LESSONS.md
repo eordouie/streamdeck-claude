@@ -39,24 +39,24 @@ changes the deck in place, and `bin/plugin.js` is whatever the last
 `ls -t` is eza-aliased on this machine and does NOT sort by mtime, so use
 `/bin/ls -t` when hunting the newest log.
 
-## Ghostty background tabs are not AX windows — jump via the Window menu
+## Ghostty background tabs are not AX windows — reach them via the Window menu
 
-First tab-jump attempt (2026-07-31) enumerated `windows of process
-"Ghostty"` and AXRaised the best title match. It could never work: with N
-native tabs, System Events sees ONE AXStandardWindow per window (the
-frontmost tab); background tabs are simply absent from the AX window list.
-What DOES list every tab — live titles included — is Ghostty's **Window
-menu**; System Events can `click (first menu item whose name ends with
-<title>)` and the right tab is selected, even from the background.
+First tab-jump attempt (2026-07-31) enumerated `windows of process "Ghostty"`
+and AXRaised the best match. It could never work: with N native tabs, System
+Events sees ONE AXStandardWindow per window (the frontmost tab); background
+tabs are absent from the AX window list entirely. What DOES list every tab,
+live titles included, is Ghostty's **Window menu** — `click menu item <idx>`
+selects a background tab fine.
 
-Two supporting facts for the title join:
-- Claude Code names the tab `<spinner|✳> <session title>` where the title is
-  the session's `aiTitle` (or `customTitle` after a rename). It is NOT in
-  `~/.claude/sessions/<pid>.json` (title stays null) but IS in the transcript
-  JSONL as `"aiTitle":"…"` lines — and the hook payload carries
-  `transcript_path`, so stamping it at SessionStart closes the loop.
-- cwd is useless as a join key here: every deck-launched tab starts in the
-  same working directory, so cwd-token scoring is degenerate by design.
+Two mechanics that matter when driving that menu:
+- Read `name of menu items` as ONE atomic list and click by **numeric index**.
+  Per-item specifiers re-resolve by name on access, so a name that changes
+  in between (Claude animates a spinner into it) fails with `-1728`.
+- cwd is useless as a join key: every deck-launched tab starts in the same
+  working directory, so cwd-token scoring is degenerate by design.
+
+Which tab belongs to which session is a separate problem — see the next
+lesson; matching on titles you don't control is a dead end.
 
 ## A tab identity you don't own is not an identity
 
@@ -90,6 +90,24 @@ Rules:
   than no jump. Fall back to "focus the app" and let the human finish.
 - When guessing whether a knob exists, grep the binary before concluding it
   doesn't — the docs didn't mention this env var at all.
+
+## A tool that drives Claude Code will meet its own reflection
+
+Two self-reference traps hit within an hour of each other (2026-07-31), both
+in the deck-name feature:
+
+- The namer picks a session's word with a headless `claude -p` call — which
+  *is* a Claude Code session, so it appeared on the deck, took a slot, and
+  triggered naming for itself, recursively. Fix: run it from a sentinel cwd
+  (`~/.claude/deck-namer`) that the session reader filters out. Any component
+  that shells out to the thing it monitors needs a way to recognise its own
+  reflection.
+- The tab's canonical name first fell back to the session's display label,
+  which falls back to the cwd basename — so five sessions started in the same
+  directory were all named "Projects", and exact matching became a coin flip.
+  A name used as an identity must be unique **by construction**, not by
+  coincidence; derive it from something already unique (the pid, or a word the
+  namer refuses to reuse).
 
 ## Elgato's built-in action settings are a private schema
 

@@ -99,40 +99,95 @@ The Windows hook is **not copied** — `install-hook.sh --target=windows` regist
 
 - TypeScript ESM (`"type": "module"`), Node 20, `strict: true`. Source is `src/**/*.ts`, output is `com.julien.claudesessions.sdPlugin/bin/plugin.js` (single bundled file via rollup).
 - Imports use the `.js` extension even for `.ts` files (NodeNext-style). Don't drop the extension.
-- Two Stream Deck actions are registered: `com.julien.claudesessions.slot` (one key per live CC session, in `src/slot-action.ts`) and `com.julien.claudesessions.setup` (a single maintenance key, in `src/setup-action.ts`). Both use the `@action({ UUID: "..." })` decorator AND must be passed to `streamDeck.actions.registerAction(...)` — the decorator alone is not enough.
+- Three Stream Deck actions are registered: `com.julien.claudesessions.slot` (one key per live CC session, in `src/slot-action.ts`), `com.julien.claudesessions.setup` (a single maintenance key, in `src/setup-action.ts`), and `com.julien.claudesessions.command` (fork addition — runs a configured script, in `src/command-action.ts`). All use the `@action({ UUID: "..." })` decorator AND must be passed to `streamDeck.actions.registerAction(...)` — the decorator alone is not enough.
 - The Setup action's key press (and its property inspector "Refresh States" button) calls `refreshNow()` in `plugin.ts`, which `wipeAllEventLogs()` (deletes every `<sid>.events.ndjson` across both source dirs) then runs an immediate `runSlowTick()`. The PI uses raw WebSocket against the Elgato bridge (`connectElgatoStreamDeckSocket`) — the SDK's TS API is plugin-side only.
 - Background context for Stream Deck plugin development inside WSL lives in the local skill `streamdeck-plugin-wsl` (`.claude/skills/`); session-introspection internals (the `<pid>.json` schema, dual-namespace liveness, hook patterns) are in `claude-code-process-introspection`. Invoke them via the `Skill` tool when relevant.
-- `docs/` holds reference notes (`architecture.md`, `development.md`, `warp-focus*.md`, `vscode-focus.md`). `docs/code-refacto.md` specifically is an audit doc, not authoritative — treat as a record of considered ideas, not a TODO list.
+- `docs/` holds reference notes (`architecture.md`, `development.md`, `warp-focus*.md`, `vscode-focus.md`, `ghostty-focus.md`). `docs/code-refacto.md` specifically is an audit doc, not authoritative — treat as a record of considered ideas, not a TODO list.
 
 ## Fork notes (eordouie / ghostty-focus)
 
 This checkout is Ehsan's fork (`origin` = eordouie/streamdeck-claude,
-`upstream` = JulienCr). Branch `ghostty-focus` (based on upstream's
-`feat/vscode-terminal-focus`) adds, relative to upstream:
+`upstream` = JulienCr). Branch `ghostty-focus`, based on upstream's
+`feat/vscode-terminal-focus`. Target: **macOS + Ghostty**, five session slots
+plus command keys on a Stream Deck MK.2.
 
-- **ghostty terminal kind** — the hook stamps `TERM_PROGRAM=ghostty` AND the
-  session's `transcript_path` at SessionStart. Slot-press focus
-  (`ghostty-focus(-mac).ts`) mines the transcript for the session's
-  `customTitle`/`aiTitle` — the exact string Claude Code names the tab — and
-  clicks the matching Ghostty **Window-menu** item (background native tabs
-  are NOT enumerable as AX windows; the Window menu lists them all).
-  Fallbacks: AX window scan by cwd tokens, then `open -b` app activation
-  (stamped-ghostty sessions only).
-- **`com.julien.claudesessions.command`** (`src/command-action.ts`) — a
-  command key whose `{label, script, args, color}` settings are baked into
-  the profile; press spawns the script. Exists because Elgato's built-in
-  Text/Hotkey/Multi Action settings are a private schema (see LESSONS.md).
-- **Bridge-friendly hook check** — on this machine the hooks in the synced
-  `~/.claude/settings.json` invoke `dotfiles/claude/hooks/streamdeck_claude_bridge.py`
-  (a guard-shim that forwards to `hooks/notification.sh` here and exits 0 on
-  machines without this checkout). `hook-check.ts` / `check-hooks.sh` accept
-  any command mentioning `streamdeck[-_]claude`, so both the direct and the
-  bridged registration pass. NOTE: a user-level `~/.claude/settings.local.json`
-  is NOT a scope Claude Code reads — never install hooks there.
+### What the fork adds
 
-The deck layout itself does NOT live here — keys are declared in
-`~/Projects/dotfiles/streamdeck/layout.toml` and applied with
-`apply-layout.sh` (quit app → regenerate page manifest → relaunch); the
-key-press behaviors are `dotfiles/streamdeck/scripts/*.sh`. Keep personal
-layout/config out of this repo so the diff against upstream stays
-upstreamable. Operating gotchas: `LESSONS.md` at the repo root.
+**Ghostty backend with owned tab identity.** The hook stamps
+`TERM_PROGRAM=ghostty` at SessionStart; `terminal-focus.ts` routes those
+sessions to `ghostty-focus(-mac).ts`. The plugin **assigns** each tab its
+identity rather than inferring one: `tab-title.ts` writes a unique canonical
+name (deck word, else `claude-<pid>`) as an OSC 2 sequence to `/dev/<tty>` of
+the session's pid — the tty *is* that tab's pty — re-asserting every 30 s.
+Focus is then an exact Window-menu match, with re-stamp-and-retry, then app
+activation; it never guesses a tab. **Requires
+`CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1`** or Claude's animated title fights the
+stamp. Full rationale and the three mechanisms this replaced:
+[`docs/ghostty-focus.md`](docs/ghostty-focus.md).
+
+**One deliberate word per session** (`deck-namer.ts`). Once a session has real
+context (first substantial prompt and/or Claude's generated title), a single
+headless `claude -p --model haiku` call picks ONE distinguishing lowercase
+word. Persisted to `~/.claude/sessions/<sid>.deckname`, never changed for the
+session's life, unlinked at SessionEnd. Until then the key shows the cwd
+basename. The namer runs from a **sentinel cwd** (`~/.claude/deck-namer`) that
+`sessions.ts` filters out — its own headless session would otherwise occupy a
+slot and recursively trigger naming.
+
+**Attention flash** (`state-tracker.ts`). A busy → needs-you transition
+(idle/awaiting/permission/plan/question/error) arms a per-session flag; the
+tile pulses and strobes its border white until the key is pressed
+(`acknowledge()`) or the session goes busy again. Static idle does not flash —
+only "finished or needs input *since you last engaged it*".
+
+**Per-slot mascots** (`icons/motifs.ts`, `slotCharacterIdle`). Each key
+position gets its own pixel character on idle: Clawd, Chrome T-Rex, blue
+sauropod, llama, baby elephant. Four walk (alternating leg poses every 3
+frames + torso bob), all blink on a shared cadence with per-slot phase
+offsets. Drawing rule learned the hard way: **leg tops must tuck one unit
+under the body**, or the walk bob opens a seam.
+
+**Command keys** (`command-action.ts`, UUID
+`com.julien.claudesessions.command`). Profile-baked `{label, script, args,
+color}` settings; a press spawns the script. Exists because Elgato's built-in
+Text/Hotkey/Multi Action settings are a private schema (see `LESSONS.md`).
+
+**Free slots launch sessions.** `slot-action.ts` reads optional
+`emptyScript`/`emptyArgs` settings: pressing an empty slot opens a new Ghostty
+tab running `claude`. Unconfigured slots keep the old "nothing here" alert.
+
+**Hook additions** (`hooks/notification.sh`): stamps `transcript_path` and the
+terminal kind at SessionStart, clips each `UserPromptSubmit` prompt (200
+chars) so the reducer can capture the session's first substantial prompt for
+naming context, and unlinks the `.deckname` sidecar at SessionEnd.
+
+**No slot-number badge** on keys, and **no `showOk` checkmark** on a slot
+press — landing on the tab is the feedback.
+
+### Where the deck config lives (not here)
+
+Key layout and key behaviours live in the dotfiles repo, deliberately, so this
+fork's diff against upstream stays upstreamable:
+
+- `~/Projects/dotfiles/streamdeck/layout.toml` — all 15 keys declared.
+- `~/Projects/dotfiles/streamdeck/apply-layout.sh` — quit app → regenerate the
+  page manifest → relaunch. `--dry-run` validates without writing.
+- `~/Projects/dotfiles/streamdeck/scripts/*.sh` — what command keys run.
+
+### macOS hook registration
+
+Hooks are registered in the **synced** `~/.claude/settings.json`, pointing at
+`dotfiles/claude/hooks/streamdeck_claude_bridge.py` — a guard-shim that
+forwards to this repo's `hooks/notification.sh` on this Mac and exits 0 on
+machines without the checkout. A user-level `~/.claude/settings.local.json` is
+**not** a scope Claude Code reads; hooks placed there never fire (that cost a
+debugging round). `hook-check.ts` / `check-hooks.sh` accept any command
+mentioning `streamdeck[-_]claude`, so both direct and bridged registrations
+pass.
+
+### Operating gotchas
+
+`LESSONS.md` at the repo root — the Stream Deck app ignoring SIGTERM and
+rewriting profiles at quit, the `"col,row"` / `Pages.Current` profile format,
+the plugin running live from this working tree, private built-in action
+schemas, and why an identity you don't own is not an identity.

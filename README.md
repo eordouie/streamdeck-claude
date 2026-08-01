@@ -9,6 +9,50 @@
 
 Each running `claude` CLI session lights up one key on your deck — project name, current state, animated when it's working, pulsing when it needs you. Press a key to copy the session's `cwd` to your clipboard and, when possible, bring its terminal to the foreground.
 
+## Fork: macOS + Ghostty (eordouie)
+
+This fork targets **macOS + [Ghostty](https://ghostty.org)** and adds, on top
+of upstream:
+
+| Addition | What it does |
+|---|---|
+| **Ghostty tab focus** | A slot press jumps to that session's exact tab. The plugin *assigns* each tab a unique name (written to the session's tty) and matches it exactly — it never guesses. See [`docs/ghostty-focus.md`](docs/ghostty-focus.md). |
+| **One word per session** | A single cheap headless call names each session with one distinguishing word, once, after it has real context. The word labels the key *and* the Ghostty tab. |
+| **Attention flash** | A key flashes from the moment its session finishes or needs input until you press it (or reply). Static idle doesn't flash. |
+| **Per-slot mascots** | Each key position has its own walking, blinking pixel character on idle. |
+| **Command keys** | A first-party action that runs a configured script — used for `/pull-all`, Esc, new-session launchers, etc. |
+| **Free slot = new session** | Pressing an empty slot opens a new Ghostty tab running `claude`. |
+
+### Extra setup for this fork
+
+```bash
+pnpm install && pnpm build
+pnpm sd:link                 # symlink the plugin into the Stream Deck app
+pnpm install:hook            # register hooks in ~/.claude/settings.json
+pnpm check:hooks             # verify they took
+```
+
+Then, **required for tab focus to work**, make sure this is in the environment
+before `claude` starts (put it in `~/.claude/settings.json`'s `env` block, your
+shell rc, or both):
+
+```
+CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
+```
+
+Claude Code otherwise repaints an animated spinner into each tab title ~10×/s,
+which no matcher can race; this hands title control to the plugin. Sessions
+started before it is set keep working, but only match after a re-stamp — restart
+them to get first-try jumps.
+
+Grant **Stream Deck.app** Accessibility permission (System Settings → Privacy &
+Security → Accessibility) on the first key press.
+
+The deck *layout* (which key does what) is intentionally not in this repo — it
+lives in the author's dotfiles as a `layout.toml` plus an apply script, so this
+fork's diff against upstream stays upstreamable. See the "Fork notes" section of
+`CLAUDE.md`.
+
 ## State gallery
 
 | | State | Meaning |
@@ -101,6 +145,7 @@ Logs land at `%APPDATA%\Elgato\StreamDeck\Plugins\com.julien.claudesessions.sdPl
 - [`docs/architecture.md`](docs/architecture.md) — session discovery, hook event → state machine, path/UNC resolution, render pipeline
 - [`docs/development.md`](docs/development.md) — full pnpm scripts, end-to-end verification, tweaks
 - [`docs/warp-focus.md`](docs/warp-focus.md) — Warp focus internals, per-OS quirks, failure modes
+- [`docs/ghostty-focus.md`](docs/ghostty-focus.md) — Ghostty tab focus: owned tab identity, why inference fails, setup + troubleshooting
 - [`docs/vscode-focus.md`](docs/vscode-focus.md) — VS Code window focus, matching algorithm, failure modes
 
 ## License
