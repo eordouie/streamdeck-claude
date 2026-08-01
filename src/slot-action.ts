@@ -53,6 +53,8 @@ export class SlotAction extends SingletonAction {
   private readonly pressTimers = new Map<string, NodeJS.Timeout>();
   /** Armed kill timers (fire at KILL_PRESS_MS). Same lifecycle as pressTimers. */
   private readonly killTimers = new Map<string, NodeJS.Timeout>();
+  /** Empty-slot launches in flight — one at a time per key. */
+  private readonly emptyLaunching = new Set<string>();
 
   constructor(
     private readonly resetSlot: (sessionId: string, origin: SessionOrigin) => Promise<void>,
@@ -94,9 +96,10 @@ export class SlotAction extends SingletonAction {
   override onKeyDown(ev: KeyDownEvent): void {
     const slot = this.state.get(ev.action.id);
     if (!slot?.clipboardPayload || !slot.sessionId || !slot.origin || slot.pid === undefined) {
-      // Empty slot — keep the "nothing to do here" feedback. No timer armed, so
-      // KeyUp is also a no-op.
-      void ev.action.showAlert();
+      // Empty slot: when the key carries emptyScript settings, a free slot
+      // doubles as a "new session" launcher; otherwise keep the "nothing to
+      // do here" alert. No timer armed either way, so KeyUp stays a no-op.
+      void this.runEmptyPress(ev);
       return;
     }
     const id = ev.action.id;
@@ -154,6 +157,32 @@ export class SlotAction extends SingletonAction {
       return;
     }
     // Relâché après 3s → kill déjà fired, no-op.
+  }
+
+  private async runEmptyPress(ev: KeyDownEvent): Promise<void> {
+    const { emptyScript, emptyArgs = [] } = ev.payload.settings as {
+      emptyScript?: string;
+      emptyArgs?: string[];
+    };
+    if (!emptyScript) {
+      await ev.action.showAlert();
+      return;
+    }
+    if (this.emptyLaunching.has(ev.action.id)) return;
+    this.emptyLaunching.add(ev.action.id);
+    try {
+      const r = await spawnCapture(emptyScript, emptyArgs, { timeoutMs: 15_000 });
+      const failed = r.err !== undefined || r.timedOut === true || r.code !== 0;
+      if (failed) {
+        streamDeck.logger.error(
+          `empty-slot launch failed: err=${r.err ?? "none"} code=${r.code} timedOut=${r.timedOut === true} stderr=${r.stderr.trim()}`,
+        );
+        await ev.action.showAlert();
+      }
+      // Success feedback is the new tab itself (and the slot filling in).
+    } finally {
+      this.emptyLaunching.delete(ev.action.id);
+    }
   }
 
   private async runShortPress(ev: KeyUpEvent): Promise<void> {
