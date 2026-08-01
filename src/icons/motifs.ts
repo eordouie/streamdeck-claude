@@ -125,7 +125,7 @@ export function slotCharacterIdle(frame: number, color: string, slot?: number): 
   const blinkPhaseMs = (n - 1) * 700;
   switch ((n - 1) % 5) {
     case 1: return dinoIdleLook(frame, blinkPhaseMs);
-    case 2: return ghostIdleLook(frame, blinkPhaseMs);
+    case 2: return sauropodIdleLook(frame, blinkPhaseMs);
     case 3: return llamaIdleLook(frame, blinkPhaseMs);
     case 4: return chimpIdleLook(frame, blinkPhaseMs);
     default: return clawdIdleLook(frame, color);
@@ -163,36 +163,34 @@ function dinoIdleLook(frame: number, blinkPhaseMs: number): string {
 </g>`;
 }
 
-/** A little white ghost — floats (translateY bob) instead of breathing, with
- *  a wavy hem and big dark eyes. */
-function ghostIdleLook(frame: number, blinkPhaseMs: number): string {
-  const bobPhase = (frame % ANIMATION_FRAMES) / ANIMATION_FRAMES;
-  const bobTri = bobPhase < 0.5 ? bobPhase * 2 : (1 - bobPhase) * 2;
-  const bobPx = (bobTri * 3).toFixed(2);
-  const shadowOpacity = (0.45 - bobTri * 0.15).toFixed(2);
-  const c = "#f8fafc";
-  const dark = "#1e293b";
-  const blush = "#f9a8d4";
-  return `<g transform="translate(50 28) scale(4)">
-<rect x="2" y="14" width="7" height="1" fill="#000" opacity="${shadowOpacity}"/>
-<g transform="translate(0 ${bobPx}) translate(0 -1.5)">
-<rect x="4" y="0" width="3" height="1" fill="${c}"/>
-<rect x="2" y="1" width="7" height="1" fill="${c}"/>
-<rect x="1" y="2" width="9" height="9" fill="${c}"/>
-<rect x="0" y="6" width="1" height="2" fill="${c}"/>
-<rect x="10" y="6" width="1" height="2" fill="${c}"/>
-<rect x="1" y="11" width="2" height="2" fill="${c}"/>
-<rect x="4" y="11" width="3" height="1" fill="${c}"/>
-<rect x="7" y="11" width="2" height="2" fill="${c}"/>
-<g transform="translate(5.5 6.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-5.5 -6.5)">
-<rect x="3" y="5" width="2" height="3" fill="${dark}"/>
-<rect x="6" y="5" width="2" height="3" fill="${dark}"/>
-<rect x="3" y="5" width="1" height="1" fill="${c}"/>
-<rect x="6" y="5" width="1" height="1" fill="${c}"/>
+/** A cute blue sauropod — the Apple 🦕 long-neck herbivore, in the same
+ *  pixel idiom as the T-Rex. Faces left; stepped neck, lighter belly, darker
+ *  back spots. Breathes from the hips up, legs planted. */
+function sauropodIdleLook(frame: number, blinkPhaseMs: number): string {
+  const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
+  const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
+  const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
+  const c = "#4ab8d1";
+  const belly = "#a8e0ec";
+  const spot = "#2d8fa8";
+  return `<g transform="translate(42 26) scale(4)">
+<rect x="2" y="15" width="11" height="1" fill="#000" opacity="0.45"/>
+<rect x="4" y="12" width="2" height="3" fill="${c}"/>
+<rect x="9" y="12" width="2" height="3" fill="${c}"/>
+<g transform="translate(7.5 12) scale(1 ${breatheY}) translate(-7.5 -12)">
+<rect x="3" y="7" width="9" height="5" fill="${c}"/>
+<rect x="5" y="10" width="6" height="2" fill="${belly}"/>
+<rect x="12" y="7" width="2" height="2" fill="${c}"/>
+<rect x="14" y="6" width="1" height="2" fill="${c}"/>
+<rect x="3" y="5" width="2" height="2" fill="${c}"/>
+<rect x="2" y="2" width="2" height="4" fill="${c}"/>
+<rect x="0" y="0" width="3" height="2" fill="${c}"/>
+<rect x="5" y="7" width="1" height="1" fill="${spot}"/>
+<rect x="8" y="7" width="1" height="1" fill="${spot}"/>
+<rect x="11" y="8" width="1" height="1" fill="${spot}"/>
+<g transform="translate(1.5 1) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-1.5 -1)">
+<rect x="1" y="1" width="1" height="1" fill="#000"/>
 </g>
-<rect x="2" y="8" width="1" height="1" fill="${blush}"/>
-<rect x="8" y="8" width="1" height="1" fill="${blush}"/>
-<rect x="5" y="9" width="1" height="1" fill="${dark}"/>
 </g>
 </g>`;
 }
