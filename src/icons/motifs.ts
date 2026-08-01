@@ -150,13 +150,15 @@ function dinoIdleLook(frame: number, blinkPhaseMs: number): string {
   // Walk-in-place: two leg poses alternating every 3 frames (360 ms/step),
   // Chrome-runner style — planted leg keeps its foot, lifted leg tucks up
   // with the foot a pixel forward. Torso bobs half a pixel on the offbeat.
+  // Legs reach one unit UP under the torso (drawn first, torso paints over),
+  // so the torso's bob can't open a seam between body and leg.
   const stepA = Math.floor(frame / 3) % 2 === 0;
   const legL = stepA
-    ? `<rect x="4" y="10" width="2" height="4" fill="${c}"/><rect x="4" y="13" width="3" height="1" fill="${c}"/>`
-    : `<rect x="4" y="10" width="2" height="3" fill="${c}"/><rect x="5" y="12" width="3" height="1" fill="${c}"/>`;
+    ? `<rect x="4" y="9" width="2" height="5" fill="${c}"/><rect x="4" y="13" width="3" height="1" fill="${c}"/>`
+    : `<rect x="4" y="9" width="2" height="4" fill="${c}"/><rect x="5" y="12" width="3" height="1" fill="${c}"/>`;
   const legR = stepA
-    ? `<rect x="7" y="10" width="2" height="3" fill="${c}"/><rect x="8" y="12" width="3" height="1" fill="${c}"/>`
-    : `<rect x="7" y="10" width="2" height="4" fill="${c}"/><rect x="7" y="13" width="3" height="1" fill="${c}"/>`;
+    ? `<rect x="7" y="9" width="2" height="4" fill="${c}"/><rect x="8" y="12" width="3" height="1" fill="${c}"/>`
+    : `<rect x="7" y="9" width="2" height="5" fill="${c}"/><rect x="7" y="13" width="3" height="1" fill="${c}"/>`;
   const bob = stepA ? "0" : "-0.5";
   return `<g transform="translate(46 26) scale(4)">
 <rect x="2" y="15" width="9" height="1" fill="#000" opacity="0.45"/>
@@ -193,12 +195,13 @@ function sauropodIdleLook(frame: number, blinkPhaseMs: number): string {
   // in lockstep on adjacent keys. The lifted leg shortens off the ground and
   // the tail tip wags against the stride.
   const stepA = Math.floor(frame / 3) % 2 === 1;
+  // Same seam guard as the T-Rex: leg tops tuck one unit under the body.
   const legF = stepA
-    ? `<rect x="4" y="12" width="2" height="3" fill="${c}"/>`
-    : `<rect x="4" y="12" width="2" height="2" fill="${c}"/>`;
+    ? `<rect x="4" y="11" width="2" height="4" fill="${c}"/>`
+    : `<rect x="4" y="11" width="2" height="3" fill="${c}"/>`;
   const legB = stepA
-    ? `<rect x="9" y="12" width="2" height="2" fill="${c}"/>`
-    : `<rect x="9" y="12" width="2" height="3" fill="${c}"/>`;
+    ? `<rect x="9" y="11" width="2" height="3" fill="${c}"/>`
+    : `<rect x="9" y="11" width="2" height="4" fill="${c}"/>`;
   const tailTipY = stepA ? 6 : 5;
   const bob = stepA ? "0" : "-0.5";
   return `<g transform="translate(42 26) scale(4)">
