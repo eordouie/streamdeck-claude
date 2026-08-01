@@ -127,7 +127,7 @@ export function slotCharacterIdle(frame: number, color: string, slot?: number): 
     case 1: return dinoIdleLook(frame, blinkPhaseMs);
     case 2: return sauropodIdleLook(frame, blinkPhaseMs);
     case 3: return llamaIdleLook(frame, blinkPhaseMs);
-    case 4: return chimpIdleLook(frame, blinkPhaseMs);
+    case 4: return persianIdleLook(frame, blinkPhaseMs);
     default: return clawdIdleLook(frame, color);
   }
 }
@@ -236,14 +236,22 @@ function llamaIdleLook(frame: number, blinkPhaseMs: number): string {
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
   const c = "#ecd9b0";
   const shade = "#c8a165";
+  // Same stroll idiom as the dinos: diagonal leg pairs alternate every 3
+  // frames, lifted legs shorten off the ground, tops tuck under the body
+  // (same fill, so the overlap is invisible), torso bobs on the offbeat.
+  const stepA = Math.floor(frame / 3) % 2 === 0;
+  const leg = (x: number, planted: boolean) =>
+    `<rect x="${x}" y="12" width="1" height="${planted ? 3 : 2}" fill="${c}"/>`;
+  const legs = stepA
+    ? leg(3, true) + leg(5, false) + leg(8, false) + leg(10, true)
+    : leg(3, false) + leg(5, true) + leg(8, true) + leg(10, false);
+  const bob = stepA ? "0" : "-0.5";
   return `<g transform="translate(46 35) scale(4)">
 <rect x="1" y="15" width="12" height="1" fill="#000" opacity="0.45"/>
+${legs}
+<g transform="translate(0 ${bob})">
 <rect x="2" y="9" width="10" height="4" fill="${c}"/>
 <rect x="11" y="8" width="2" height="2" fill="${c}"/>
-<rect x="3" y="13" width="1" height="2" fill="${c}"/>
-<rect x="5" y="13" width="1" height="2" fill="${c}"/>
-<rect x="8" y="13" width="1" height="2" fill="${c}"/>
-<rect x="10" y="13" width="1" height="2" fill="${c}"/>
 <g transform="translate(3 9) scale(1 ${breatheY}) translate(-3 -9)">
 <rect x="2" y="5" width="2" height="4" fill="${c}"/>
 <rect x="0" y="0" width="1" height="2" fill="${c}"/>
@@ -254,46 +262,47 @@ function llamaIdleLook(frame: number, blinkPhaseMs: number): string {
 <rect x="1" y="3" width="1" height="1" fill="#000"/>
 </g>
 </g>
+</g>
 </g>`;
 }
 
-/** A shaggy chimp, front view — fur crown spikes, big ears, tan face and
- *  chest patch. Breathes on the whole figure above the shadow. */
-function chimpIdleLook(frame: number, blinkPhaseMs: number): string {
+/** A super cute Persian cat, front view — flat face, fluffy cheeks, big
+ *  glossy eyes, pink ears and button nose, plume tail that swishes. */
+function persianIdleLook(frame: number, blinkPhaseMs: number): string {
   const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
-  const fur = "#4a3527";
-  const face = "#e0b98d";
-  const mouth = "#8c5f3f";
-  return `<g transform="translate(46 37) scale(4)">
-<rect x="2" y="13" width="9" height="1" fill="#000" opacity="0.45"/>
-<g transform="translate(6.5 12) scale(1 ${breatheY}) translate(-6.5 -12)">
-<rect x="4" y="0" width="1" height="1" fill="${fur}"/>
-<rect x="6" y="0" width="1" height="1" fill="${fur}"/>
-<rect x="8" y="0" width="1" height="1" fill="${fur}"/>
-<rect x="3" y="1" width="7" height="6" fill="${fur}"/>
-<rect x="2" y="2" width="1" height="4" fill="${fur}"/>
-<rect x="10" y="2" width="1" height="4" fill="${fur}"/>
-<rect x="0" y="3" width="2" height="3" fill="${fur}"/>
-<rect x="11" y="3" width="2" height="3" fill="${fur}"/>
-<rect x="1" y="4" width="1" height="1" fill="${face}"/>
-<rect x="11" y="4" width="1" height="1" fill="${face}"/>
-<rect x="4" y="2" width="2" height="2" fill="${face}"/>
-<rect x="7" y="2" width="2" height="2" fill="${face}"/>
-<g transform="translate(6.5 3.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-6.5 -3.5)">
-<rect x="4" y="3" width="1" height="1" fill="#000"/>
-<rect x="8" y="3" width="1" height="1" fill="#000"/>
+  const fur = "#f2e8da";
+  const shade = "#d8c8b4";
+  const pink = "#f2a6b3";
+  const eye = "#3b3547";
+  // Slow tail swish: the plume tip sways every 6 frames (720 ms).
+  const tailTipY = Math.floor(frame / 6) % 2 === 0 ? 6 : 7;
+  return `<g transform="translate(44 37) scale(4)">
+<rect x="2" y="14" width="10" height="1" fill="#000" opacity="0.45"/>
+<g transform="translate(6.5 13) scale(1 ${breatheY}) translate(-6.5 -13)">
+<rect x="11" y="${tailTipY}" width="2" height="3" fill="${fur}"/>
+<rect x="10" y="9" width="3" height="3" fill="${fur}"/>
+<rect x="2" y="0" width="2" height="2" fill="${fur}"/>
+<rect x="9" y="0" width="2" height="2" fill="${fur}"/>
+<rect x="2" y="1" width="1" height="1" fill="${pink}"/>
+<rect x="10" y="1" width="1" height="1" fill="${pink}"/>
+<rect x="2" y="2" width="9" height="6" fill="${fur}"/>
+<rect x="1" y="4" width="1" height="3" fill="${fur}"/>
+<rect x="11" y="4" width="1" height="3" fill="${fur}"/>
+<g transform="translate(6.5 5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-6.5 -5)">
+<rect x="3" y="4" width="2" height="2" fill="${eye}"/>
+<rect x="8" y="4" width="2" height="2" fill="${eye}"/>
+<rect x="3" y="4" width="1" height="1" fill="#ffffff"/>
+<rect x="8" y="4" width="1" height="1" fill="#ffffff"/>
 </g>
-<rect x="4" y="4" width="5" height="3" fill="${face}"/>
-<rect x="5" y="5" width="1" height="1" fill="${mouth}"/>
-<rect x="7" y="5" width="1" height="1" fill="${mouth}"/>
-<rect x="4" y="6" width="5" height="1" fill="${mouth}" opacity="0.55"/>
-<rect x="4" y="7" width="5" height="4" fill="${fur}"/>
-<rect x="2" y="7" width="2" height="3" fill="${fur}"/>
-<rect x="9" y="7" width="2" height="3" fill="${fur}"/>
-<rect x="4" y="11" width="2" height="1" fill="${fur}"/>
-<rect x="7" y="11" width="2" height="1" fill="${fur}"/>
+<rect x="6" y="5" width="1" height="1" fill="${pink}"/>
+<rect x="6" y="6" width="1" height="1" fill="${shade}"/>
+<rect x="3" y="8" width="7" height="5" fill="${fur}"/>
+<rect x="2" y="9" width="1" height="3" fill="${fur}"/>
+<rect x="10" y="9" width="1" height="3" fill="${fur}"/>
+<rect x="4" y="12" width="2" height="1" fill="${shade}"/>
+<rect x="7" y="12" width="2" height="1" fill="${shade}"/>
 </g>
 </g>`;
 }
