@@ -44,14 +44,12 @@ done
 case "$TARGET" in
   wsl)
     # "wsl" is the historical name; this branch also covers macOS native, since
-    # both use the POSIX hook. On macOS the hooks land in settings.local.json:
-    # settings.json is commonly a dotfiles symlink synced to machines that
-    # don't run the Stream Deck app, and these entries must stay machine-local.
-    if [ "$(uname -s)" = "Darwin" ]; then
-      SETTINGS_PATH="${HOME}/.claude/settings.local.json"
-    else
-      SETTINGS_PATH="${HOME}/.claude/settings.json"
-    fi
+    # both write to $HOME/.claude/settings.json with the POSIX hook. (A
+    # user-level settings.local.json is NOT a scope Claude Code reads — only
+    # project-level .claude/settings.local.json exists. If your settings.json
+    # is a synced dotfiles symlink, register a machine-guarded bridge command
+    # there instead of running this installer.)
+    SETTINGS_PATH="${HOME}/.claude/settings.json"
     HOOK_CMD="${ROOT}/hooks/notification.sh"
     if [ ! -x "$HOOK_CMD" ]; then
       chmod +x "$HOOK_CMD"

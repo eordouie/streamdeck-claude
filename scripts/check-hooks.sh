@@ -33,7 +33,9 @@ EXPECTED_EVENTS=(
 
 WSL_HOOK="${ROOT}/hooks/notification.sh"
 WIN_HOOK="${ROOT}/hooks/notification.ps1"
-WSL_HOOK_REGEX="streamdeck-claude.*notification\\.sh"
+# Accepts the direct notification.sh registration OR a wrapper/bridge command
+# that forwards to it (anything mentioning streamdeck[-_]claude).
+WSL_HOOK_REGEX="streamdeck[-_]claude"
 WIN_HOOK_REGEX="streamdeck-claude.*notification\\.ps1"
 
 if [ -t 1 ]; then
@@ -113,13 +115,7 @@ if [ "$(uname -s)" != "Darwin" ]; then
 fi
 
 # --- Local POSIX settings (WSL on Windows, macOS native) ------------------
-# macOS installs into settings.local.json (settings.json is commonly a synced
-# dotfiles symlink) — check the file install-hook.sh actually targets.
-if [ "$(uname -s)" = "Darwin" ]; then
-  check_settings "Local hooks (${USER:-?})" "${HOME}/.claude/settings.local.json" "$WSL_HOOK_REGEX"
-else
-  check_settings "Local hooks (${USER:-?})" "${HOME}/.claude/settings.json" "$WSL_HOOK_REGEX"
-fi
+check_settings "Local hooks (${USER:-?})" "${HOME}/.claude/settings.json" "$WSL_HOOK_REGEX"
 
 # --- Windows settings (skipped on macOS — no WSL/Windows split here) ------
 if [ "$(uname -s)" != "Darwin" ]; then

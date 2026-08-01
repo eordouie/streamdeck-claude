@@ -44,14 +44,16 @@ export const REQUIRED_HOOK_EVENTS = [
 interface SettingsTarget {
   origin: string;
   /** Candidate settings files, merged: registered in ANY of them counts.
-   *  Claude Code itself merges hooks across its settings scopes, so a hook
-   *  living in settings.local.json (the macOS install target) is just as
-   *  live as one in settings.json. */
+   *  (User-level settings.local.json is NOT a scope Claude Code reads; it
+   *  stays in the candidate list only as a tolerance for configs that
+   *  predate that discovery — a registration there alone will not fire.) */
   paths: string[];
   scriptRe: RegExp;
 }
 
-const POSIX_HOOK_RE = /streamdeck-claude.*notification\.sh/;
+// Accepts the direct notification.sh registration OR a wrapper/bridge command
+// that forwards to it (anything mentioning streamdeck[-_]claude).
+const POSIX_HOOK_RE = /streamdeck[-_]claude/;
 const WINDOWS_HOOK_RE = /streamdeck-claude.*notification\.ps1/;
 
 const SETTINGS_TARGETS: SettingsTarget[] = platform() === "win32"

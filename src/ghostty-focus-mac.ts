@@ -57,7 +57,7 @@ async function enumerateWindowNames(): Promise<
       return out
     end tell
   `;
-  const r = await runOsa(script, 2000);
+  const r = await runOsa(script, 4000);
   if (!r.ok) return { ok: false, error: r.error };
   if (r.out.startsWith("ERR:")) return r.out === "ERR:not-running"
     ? { ok: true, titles: [] }
@@ -86,7 +86,7 @@ async function raiseWindowByName(name: string): Promise<{ ok: true } | { ok: fal
       return "OK"
     end tell
   `;
-  const r = await runOsa(script, 2000);
+  const r = await runOsa(script, 4000);
   if (!r.ok) return { ok: false, error: r.error };
   return r.out === "OK" ? { ok: true } : { ok: false, error: r.out };
 }

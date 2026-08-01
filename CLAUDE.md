@@ -118,9 +118,13 @@ This checkout is Ehsan's fork (`origin` = eordouie/streamdeck-claude,
   command key whose `{label, script, args, color}` settings are baked into
   the profile; press spawns the script. Exists because Elgato's built-in
   Text/Hotkey/Multi Action settings are a private schema (see LESSONS.md).
-- **macOS hook install target** — `install-hook.sh` writes
-  `~/.claude/settings.local.json` on Darwin (settings.json is a synced
-  dotfiles symlink); `hook-check.ts` / `check-hooks.sh` accept either file.
+- **Bridge-friendly hook check** — on this machine the hooks in the synced
+  `~/.claude/settings.json` invoke `dotfiles/claude/hooks/streamdeck_claude_bridge.py`
+  (a guard-shim that forwards to `hooks/notification.sh` here and exits 0 on
+  machines without this checkout). `hook-check.ts` / `check-hooks.sh` accept
+  any command mentioning `streamdeck[-_]claude`, so both the direct and the
+  bridged registration pass. NOTE: a user-level `~/.claude/settings.local.json`
+  is NOT a scope Claude Code reads — never install hooks there.
 
 The deck layout itself does NOT live here — keys are declared in
 `~/Projects/dotfiles/streamdeck/layout.toml` and applied with
