@@ -62,7 +62,12 @@ async function killSlot(pid: number, sessionId: string, origin: SessionOrigin): 
   await runSlowTick();
 }
 
-const slotAction = new SlotAction(resetSlot, killSlot, (sessionId) => tracker.acknowledge(sessionId));
+const slotAction = new SlotAction(
+  resetSlot,
+  killSlot,
+  (sessionId) => tracker.acknowledge(sessionId),
+  (sessionId) => tracker.dismiss(sessionId),
+);
 const setupAction = new SetupAction(refreshNow);
 const commandAction = new CommandAction();
 

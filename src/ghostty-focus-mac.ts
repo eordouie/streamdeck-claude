@@ -36,12 +36,15 @@ export async function focusGhosttyTabOnMac(
   const canonical = opts.canonicalTitle ?? "";
   if (!canonical) return miss("no-canonical-title");
 
+  // Before raising anything: is the user already looking at this session?
+  const alreadyFront = await isSessionTabFrontmost(canonical);
+
   // Raising the app first is wanted on success anyway, and a menu interaction
   // on a frontmost app is the reliable path.
   await activateApp();
 
   const first = await clickWindowMenuTabExact(canonical);
-  if (first.ok) return { matched: true, reason: `menu exact="${canonical}"` };
+  if (first.ok) return { matched: true, reason: `menu exact="${canonical}"`, alreadyFront };
 
   // The tab's title drifted (shell prompt, user edit, session started before
   // the plugin owned titles): re-stamp it through the session's tty and retry.
@@ -50,13 +53,33 @@ export async function focusGhosttyTabOnMac(
     if (dev && (await writeTabTitle(dev, canonical))) {
       await new Promise((r) => setTimeout(r, 250));
       const second = await clickWindowMenuTabExact(canonical);
-      if (second.ok) return { matched: true, reason: `menu exact="${canonical}" (re-stamped)` };
+      if (second.ok) return { matched: true, reason: `menu exact="${canonical}" (re-stamped)`, alreadyFront };
       streamDeck.logger.info(`ghostty exact miss after re-stamp (${second.error}) title="${canonical}"`);
       return miss(`no-tab-named "${canonical}"`);
     }
   }
   streamDeck.logger.info(`ghostty exact miss (${first.error}) title="${canonical}"`);
   return miss(`no-tab-named "${canonical}"`);
+}
+
+/** True when Ghostty is the frontmost app AND `title` is its focused tab —
+ *  the user is looking straight at that session. Checked BEFORE we activate
+ *  anything, since activating would make the answer trivially true. */
+async function isSessionTabFrontmost(title: string): Promise<boolean> {
+  const escaped = title.replace(/"/g, '" & quote & "');
+  const script = `
+    tell application "System Events"
+      if not (exists process "Ghostty") then return "no"
+      tell process "Ghostty"
+        if not (frontmost) then return "no"
+        if (count of windows) is 0 then return "no"
+        if (name of window 1) is "${escaped}" then return "yes"
+      end tell
+      return "no"
+    end tell
+  `;
+  const r = await runOsa(script, 3000);
+  return r.ok && r.out === "yes";
 }
 
 /** Click the Window-menu item whose name is EXACTLY `title`.

@@ -60,6 +60,7 @@ export class SlotAction extends SingletonAction {
     private readonly resetSlot: (sessionId: string, origin: SessionOrigin) => Promise<void>,
     private readonly killSlot: (pid: number, sessionId: string, origin: SessionOrigin) => Promise<void>,
     private readonly acknowledgeSlot: (sessionId: string) => void = () => {},
+    private readonly dismissSlot: (sessionId: string) => void = () => {},
   ) {
     super();
   }
@@ -206,7 +207,15 @@ export class SlotAction extends SingletonAction {
       });
       // No showOk here: landing on the tab (and the flash clearing) IS the
       // feedback — the green checkmark overlay just adds noise.
-      streamDeck.logger.info(`focus(${slot?.terminal ?? "unknown"}): ${res.reason} for cwd=${cwd}`);
+      // Pressing the key for a session you were ALREADY looking at means
+      // "I know, nothing owed here" — clear the debt outright instead of
+      // just snoozing it.
+      if (res.alreadyFront === true && slot?.sessionId) {
+        this.dismissSlot(slot.sessionId);
+      }
+      streamDeck.logger.info(
+        `focus(${slot?.terminal ?? "unknown"}): ${res.reason}${res.alreadyFront ? " [already front → dismissed]" : ""} for cwd=${cwd}`,
+      );
     } catch (err) {
       streamDeck.logger.error("clipboard copy failed", err);
       await ev.action.showAlert();

@@ -9,6 +9,10 @@ import { focusGhosttyTabForCwd } from "./ghostty-focus.js";
 export interface FocusResult {
   matched: boolean;
   reason: string;
+  /** The session's tab was ALREADY the focused tab of the frontmost app when
+   *  the key was pressed — i.e. the user is looking right at it, so the press
+   *  means "I'm here, stop nagging" rather than "take me there". */
+  alreadyFront?: boolean;
 }
 
 /**

@@ -32,6 +32,9 @@ const ATTENTION_STATES: ReadonlySet<SessionState> = new Set([
  *  starts flashing again. Long enough to read and think in the tab, short
  *  enough that a session you wandered away from can't be forgotten. */
 const RENAG_AFTER_MS = 180_000;
+/** After this many unanswered nags the key stops flashing and keeps only the
+ *  dot — a session that needs no reply must never strobe forever. */
+const MAX_NAGS = 3;
 
 export interface DisplayEntry {
   session: SessionInfo;
@@ -64,7 +67,7 @@ export function createStateTracker() {
   /** Sessions that owe the user a reply, keyed by sessionId. `snoozedAt` is
    *  set by a slot press: the key stops flashing but keeps a dot, and
    *  re-arms once RENAG_AFTER_MS has passed. */
-  const owed = new Map<string, { snoozedAt?: number }>();
+  const owed = new Map<string, { snoozedAt?: number; nags: number; muted?: boolean }>();
 
   let lastDiag = "";
   function maybeLog(msg: string): void {
@@ -106,7 +109,7 @@ export function createStateTracker() {
       const sid = e.session.sessionId;
       const prev = prevStates.get(sid);
       if (prev !== undefined && BUSY_STATES.has(prev) && ATTENTION_STATES.has(e.state)) {
-        if (!owed.has(sid)) owed.set(sid, {});
+        if (!owed.has(sid)) owed.set(sid, { nags: 1 });
       } else if (BUSY_STATES.has(e.state)) {
         owed.delete(sid);
       }
@@ -118,11 +121,14 @@ export function createStateTracker() {
         e.awaitingReply = false;
         continue;
       }
-      // Snoozed presses re-arm once the grace period lapses.
+      // Snoozed presses re-arm once the grace period lapses — up to MAX_NAGS,
+      // after which the tile goes quiet and keeps only the dot.
       if (entry.snoozedAt !== undefined && now - entry.snoozedAt >= RENAG_AFTER_MS) {
         entry.snoozedAt = undefined;
+        entry.nags += 1;
+        if (entry.nags > MAX_NAGS) entry.muted = true;
       }
-      e.attention = entry.snoozedAt === undefined;
+      e.attention = entry.muted !== true && entry.snoozedAt === undefined;
       e.awaitingReply = true;
     }
 
@@ -186,5 +192,18 @@ export function createStateTracker() {
     }
   }
 
-  return { tick, getEntries, needsAnimation, acknowledge };
+  /** Slot press while the user was already looking at that session: they know,
+   *  and nothing is owed. Clears flash and dot until the session next goes
+   *  busy → needs-you. */
+  function dismiss(sessionId: string): void {
+    owed.delete(sessionId);
+    for (const e of cachedEntries) {
+      if (e.session.sessionId === sessionId) {
+        e.attention = false;
+        e.awaitingReply = false;
+      }
+    }
+  }
+
+  return { tick, getEntries, needsAnimation, acknowledge, dismiss };
 }
