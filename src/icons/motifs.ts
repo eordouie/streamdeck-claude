@@ -147,12 +147,22 @@ function dinoIdleLook(frame: number, blinkPhaseMs: number): string {
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
   const c = "#22c55e";
+  // Walk-in-place: two leg poses alternating every 3 frames (360 ms/step),
+  // Chrome-runner style — planted leg keeps its foot, lifted leg tucks up
+  // with the foot a pixel forward. Torso bobs half a pixel on the offbeat.
+  const stepA = Math.floor(frame / 3) % 2 === 0;
+  const legL = stepA
+    ? `<rect x="4" y="10" width="2" height="4" fill="${c}"/><rect x="4" y="13" width="3" height="1" fill="${c}"/>`
+    : `<rect x="4" y="10" width="2" height="3" fill="${c}"/><rect x="5" y="12" width="3" height="1" fill="${c}"/>`;
+  const legR = stepA
+    ? `<rect x="7" y="10" width="2" height="3" fill="${c}"/><rect x="8" y="12" width="3" height="1" fill="${c}"/>`
+    : `<rect x="7" y="10" width="2" height="4" fill="${c}"/><rect x="7" y="13" width="3" height="1" fill="${c}"/>`;
+  const bob = stepA ? "0" : "-0.5";
   return `<g transform="translate(46 26) scale(4)">
 <rect x="2" y="15" width="9" height="1" fill="#000" opacity="0.45"/>
-<rect x="4" y="10" width="2" height="4" fill="${c}"/>
-<rect x="7" y="10" width="2" height="4" fill="${c}"/>
-<rect x="4" y="13" width="3" height="1" fill="${c}"/>
-<rect x="7" y="13" width="3" height="1" fill="${c}"/>
+${legL}
+${legR}
+<g transform="translate(0 ${bob})">
 <g transform="translate(6.5 10) scale(1 ${breatheY}) translate(-6.5 -10)">
 <rect x="0" y="4" width="2" height="2" fill="${c}"/>
 <rect x="1" y="5" width="2" height="3" fill="${c}"/>
@@ -165,12 +175,13 @@ function dinoIdleLook(frame: number, blinkPhaseMs: number): string {
 <rect x="8" y="1" width="1" height="1" fill="#000"/>
 </g>
 </g>
+</g>
 </g>`;
 }
 
 /** A cute blue sauropod — the Apple 🦕 long-neck herbivore, in the same
  *  pixel idiom as the T-Rex. Faces left; stepped neck, lighter belly, darker
- *  back spots. Breathes from the hips up, legs planted. */
+ *  back spots. Walks in place with a wagging tail. */
 function sauropodIdleLook(frame: number, blinkPhaseMs: number): string {
   const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
@@ -178,15 +189,28 @@ function sauropodIdleLook(frame: number, blinkPhaseMs: number): string {
   const c = "#4ab8d1";
   const belly = "#a8e0ec";
   const spot = "#2d8fa8";
+  // Same stroll cadence as the T-Rex, phase-flipped so the pair don't march
+  // in lockstep on adjacent keys. The lifted leg shortens off the ground and
+  // the tail tip wags against the stride.
+  const stepA = Math.floor(frame / 3) % 2 === 1;
+  const legF = stepA
+    ? `<rect x="4" y="12" width="2" height="3" fill="${c}"/>`
+    : `<rect x="4" y="12" width="2" height="2" fill="${c}"/>`;
+  const legB = stepA
+    ? `<rect x="9" y="12" width="2" height="2" fill="${c}"/>`
+    : `<rect x="9" y="12" width="2" height="3" fill="${c}"/>`;
+  const tailTipY = stepA ? 6 : 5;
+  const bob = stepA ? "0" : "-0.5";
   return `<g transform="translate(42 26) scale(4)">
 <rect x="2" y="15" width="11" height="1" fill="#000" opacity="0.45"/>
-<rect x="4" y="12" width="2" height="3" fill="${c}"/>
-<rect x="9" y="12" width="2" height="3" fill="${c}"/>
+${legF}
+${legB}
+<g transform="translate(0 ${bob})">
 <g transform="translate(7.5 12) scale(1 ${breatheY}) translate(-7.5 -12)">
 <rect x="3" y="7" width="9" height="5" fill="${c}"/>
 <rect x="5" y="10" width="6" height="2" fill="${belly}"/>
 <rect x="12" y="7" width="2" height="2" fill="${c}"/>
-<rect x="14" y="6" width="1" height="2" fill="${c}"/>
+<rect x="14" y="${tailTipY}" width="1" height="2" fill="${c}"/>
 <rect x="3" y="5" width="2" height="2" fill="${c}"/>
 <rect x="2" y="2" width="2" height="4" fill="${c}"/>
 <rect x="0" y="0" width="3" height="3" fill="${c}"/>
@@ -195,6 +219,7 @@ function sauropodIdleLook(frame: number, blinkPhaseMs: number): string {
 <rect x="11" y="8" width="1" height="1" fill="${spot}"/>
 <g transform="translate(1.5 1) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-1.5 -1)">
 <rect x="1" y="1" width="1" height="1" fill="#000"/>
+</g>
 </g>
 </g>
 </g>`;
