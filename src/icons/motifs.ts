@@ -136,7 +136,7 @@ export function slotCharacterIdle(frame: number, color: string, slot?: number): 
     case 1: return dinoIdleLook(frame, blinkPhaseMs);
     case 2: return sauropodIdleLook(frame, blinkPhaseMs);
     case 3: return llamaIdleLook(frame, blinkPhaseMs);
-    case 4: return persianIdleLook(frame, blinkPhaseMs);
+    case 4: return elephantIdleLook(frame, blinkPhaseMs);
     default: return clawdIdleLook(frame, color);
   }
 }
@@ -275,41 +275,39 @@ ${legs}
 </g>`;
 }
 
-/** A super cute Persian cat in side profile, facing left like the other
- *  walkers — pointed ears, flat face with a pink button nose, chunky fluffy
- *  body, and a big plume tail curling up over the back (720 ms swish).
- *  Strolls front/back legs, phase-opposed to the llama next door. */
-function persianIdleLook(frame: number, blinkPhaseMs: number): string {
+/** A cute baby elephant in side profile, facing left — oversized head, big
+ *  floppy ear with a pink inner, trunk that swings with the stride, chunky
+ *  stubby legs. Strolls phase-opposed to the llama next door. */
+function elephantIdleLook(frame: number, blinkPhaseMs: number): string {
   const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
-  const fur = "#f2e8da";
-  const shade = "#d8c8b4";
+  const c = "#9fa8ba";
+  const ear = "#b8c0cf";
   const pink = "#f2a6b3";
   const stepA = Math.floor(frame / 3) % 2 === 1;
   const leg = (x: number, planted: boolean) =>
-    `<rect x="${x}" y="11" width="2" height="${planted ? 4 : 3}" fill="${fur}"/>`;
-  const legs = stepA ? leg(3, true) + leg(9, false) : leg(3, false) + leg(9, true);
+    `<rect x="${x}" y="10" width="2" height="${planted ? 5 : 4}" fill="${c}"/>`;
+  const legs = stepA ? leg(5, true) + leg(10, false) : leg(5, false) + leg(10, true);
   const bob = stepA ? "0" : "-0.5";
-  const tailTipY = Math.floor(frame / 6) % 2 === 0 ? 1 : 2;
+  // Trunk swings with the walk: curled tip on one beat, hanging straight on
+  // the other.
+  const trunk = stepA
+    ? `<rect x="0" y="7" width="1" height="3" fill="${c}"/><rect x="1" y="9" width="1" height="1" fill="${c}"/>`
+    : `<rect x="0" y="7" width="1" height="4" fill="${c}"/>`;
   return `<g transform="translate(44 35) scale(4)">
 <rect x="1" y="15" width="12" height="1" fill="#000" opacity="0.45"/>
 ${legs}
 <g transform="translate(0 ${bob})">
-<g transform="translate(6.5 11) scale(1 ${breatheY}) translate(-6.5 -11)">
-<rect x="12" y="${tailTipY}" width="2" height="2" fill="${fur}"/>
-<rect x="12" y="3" width="2" height="2" fill="${fur}"/>
-<rect x="11" y="5" width="2" height="2" fill="${fur}"/>
-<rect x="2" y="6" width="10" height="6" fill="${fur}"/>
-<rect x="3" y="11" width="8" height="1" fill="${shade}"/>
-<rect x="1" y="0" width="1" height="2" fill="${fur}"/>
-<rect x="3" y="0" width="1" height="2" fill="${fur}"/>
-<rect x="1" y="1" width="1" height="1" fill="${pink}"/>
-<rect x="0" y="2" width="5" height="4" fill="${fur}"/>
-<rect x="0" y="6" width="2" height="1" fill="${fur}"/>
-<rect x="0" y="4" width="1" height="1" fill="${pink}"/>
-<g transform="translate(1.5 3.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-1.5 -3.5)">
-<rect x="1" y="3" width="1" height="1" fill="#000"/>
+<g transform="translate(6.5 10) scale(1 ${breatheY}) translate(-6.5 -10)">
+<rect x="13" y="5" width="1" height="3" fill="${ear}"/>
+<rect x="4" y="4" width="9" height="7" fill="${c}"/>
+<rect x="0" y="2" width="5" height="5" fill="${c}"/>
+${trunk}
+<rect x="3" y="3" width="3" height="4" fill="${ear}"/>
+<rect x="4" y="4" width="1" height="1" fill="${pink}"/>
+<g transform="translate(1.5 4.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-1.5 -4.5)">
+<rect x="1" y="4" width="1" height="1" fill="#000"/>
 </g>
 </g>
 </g>
