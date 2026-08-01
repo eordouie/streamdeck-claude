@@ -58,6 +58,39 @@ Two supporting facts for the title join:
 - cwd is useless as a join key here: every deck-launched tab starts in the
   same working directory, so cwd-token scoring is degenerate by design.
 
+## A tab identity you don't own is not an identity
+
+Three successive tab-jump mechanisms failed for the same underlying reason
+(2026-07-31): every one of them read an identity that something else
+controlled.
+
+- **Session title** — Claude Code paints the tab title itself AND animates a
+  spinner glyph into it (~10 updates/s while working). Any match races the
+  next repaint; a `whose name ends with` specifier resolved a beat later
+  dies with AppleScript -1728.
+- **A marker we write, then restore** — same race, lost by definition on a
+  busy session.
+- **Position** — untitled sessions all share the tab name "Claude Code", and
+  the tab strip's order is NOT session start order (verified by comparing
+  each session's tty against the strip). Indexing into it picks a
+  confidently wrong tab the moment a tab is opened manually or dragged.
+
+The fix was to stop reading someone else's identity and own one:
+`CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` (undocumented but real — found by
+grepping the CLI binary for `CLAUDE_CODE_*TITLE*`) hands title control over,
+then the plugin stamps each tab with a unique canonical name by writing
+`ESC ] 2 ; <name> BEL` to the session pid's controlling tty. The tty **is**
+the tab's pty, so that write can't hit the wrong tab, and it's an output-path
+write — the running TUI never sees it on stdin.
+
+Rules:
+- Prefer an identity you assign over one you infer, and re-assert it
+  periodically rather than assuming it holds.
+- Never let a matcher fall back to a positional guess: a wrong jump is worse
+  than no jump. Fall back to "focus the app" and let the human finish.
+- When guessing whether a knob exists, grep the binary before concluding it
+  doesn't — the docs didn't mention this env var at all.
+
 ## Elgato's built-in action settings are a private schema
 
 The system actions (Text, Hotkey, Multi Action) declare `PrivateAPI: true`
