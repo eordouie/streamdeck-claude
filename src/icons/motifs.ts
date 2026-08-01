@@ -171,21 +171,28 @@ function ghostIdleLook(frame: number, blinkPhaseMs: number): string {
   const bobPx = (bobTri * 3).toFixed(2);
   const shadowOpacity = (0.45 - bobTri * 0.15).toFixed(2);
   const c = "#f8fafc";
-  const dark = "#0f172a";
+  const dark = "#1e293b";
+  const blush = "#f9a8d4";
   return `<g transform="translate(50 28) scale(4)">
 <rect x="2" y="14" width="7" height="1" fill="#000" opacity="${shadowOpacity}"/>
 <g transform="translate(0 ${bobPx}) translate(0 -1.5)">
-<rect x="3" y="0" width="5" height="1" fill="${c}"/>
-<rect x="1" y="1" width="9" height="1" fill="${c}"/>
-<rect x="0" y="2" width="11" height="8" fill="${c}"/>
-<rect x="0" y="10" width="3" height="2" fill="${c}"/>
-<rect x="4" y="10" width="3" height="1" fill="${c}"/>
-<rect x="8" y="10" width="3" height="2" fill="${c}"/>
-<g transform="translate(5.5 5.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-5.5 -5.5)">
-<rect x="2" y="4" width="2" height="3" fill="${dark}"/>
-<rect x="7" y="4" width="2" height="3" fill="${dark}"/>
+<rect x="4" y="0" width="3" height="1" fill="${c}"/>
+<rect x="2" y="1" width="7" height="1" fill="${c}"/>
+<rect x="1" y="2" width="9" height="9" fill="${c}"/>
+<rect x="0" y="6" width="1" height="2" fill="${c}"/>
+<rect x="10" y="6" width="1" height="2" fill="${c}"/>
+<rect x="1" y="11" width="2" height="2" fill="${c}"/>
+<rect x="4" y="11" width="3" height="1" fill="${c}"/>
+<rect x="7" y="11" width="2" height="2" fill="${c}"/>
+<g transform="translate(5.5 6.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-5.5 -6.5)">
+<rect x="3" y="5" width="2" height="3" fill="${dark}"/>
+<rect x="6" y="5" width="2" height="3" fill="${dark}"/>
+<rect x="3" y="5" width="1" height="1" fill="${c}"/>
+<rect x="6" y="5" width="1" height="1" fill="${c}"/>
 </g>
-<rect x="5" y="8" width="1" height="1" fill="${dark}"/>
+<rect x="2" y="8" width="1" height="1" fill="${blush}"/>
+<rect x="8" y="8" width="1" height="1" fill="${blush}"/>
+<rect x="5" y="9" width="1" height="1" fill="${dark}"/>
 </g>
 </g>`;
 }
@@ -229,28 +236,33 @@ function chimpIdleLook(frame: number, blinkPhaseMs: number): string {
   const face = "#e0b98d";
   const mouth = "#8c5f3f";
   return `<g transform="translate(46 28) scale(4)">
-<rect x="2" y="14" width="9" height="1" fill="#000" opacity="0.45"/>
+<rect x="2" y="13" width="9" height="1" fill="#000" opacity="0.45"/>
 <g transform="translate(6.5 12) scale(1 ${breatheY}) translate(-6.5 -12)">
-<rect x="3" y="0" width="1" height="1" fill="${fur}"/>
-<rect x="5" y="0" width="1" height="1" fill="${fur}"/>
-<rect x="7" y="0" width="1" height="1" fill="${fur}"/>
-<rect x="9" y="0" width="1" height="1" fill="${fur}"/>
-<rect x="2" y="1" width="9" height="7" fill="${fur}"/>
-<rect x="1" y="2" width="1" height="2" fill="${fur}"/>
-<rect x="11" y="2" width="1" height="2" fill="${fur}"/>
+<rect x="4" y="0" width="1" height="1" fill="${fur}"/>
+<rect x="6" y="0" width="1" height="1" fill="${fur}"/>
+<rect x="8" y="0" width="1" height="1" fill="${fur}"/>
+<rect x="3" y="1" width="7" height="6" fill="${fur}"/>
+<rect x="2" y="2" width="1" height="4" fill="${fur}"/>
+<rect x="10" y="2" width="1" height="4" fill="${fur}"/>
 <rect x="0" y="3" width="2" height="3" fill="${fur}"/>
 <rect x="11" y="3" width="2" height="3" fill="${fur}"/>
-<rect x="3" y="3" width="7" height="5" fill="${face}"/>
-<g transform="translate(6.5 5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-6.5 -5)">
-<rect x="4" y="4" width="1" height="2" fill="#000"/>
-<rect x="8" y="4" width="1" height="2" fill="#000"/>
+<rect x="1" y="4" width="1" height="1" fill="${face}"/>
+<rect x="11" y="4" width="1" height="1" fill="${face}"/>
+<rect x="4" y="2" width="2" height="2" fill="${face}"/>
+<rect x="7" y="2" width="2" height="2" fill="${face}"/>
+<g transform="translate(6.5 3.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-6.5 -3.5)">
+<rect x="4" y="3" width="1" height="1" fill="#000"/>
+<rect x="8" y="3" width="1" height="1" fill="#000"/>
 </g>
-<rect x="6" y="6" width="1" height="1" fill="${mouth}"/>
-<rect x="5" y="7" width="3" height="1" fill="${mouth}"/>
-<rect x="2" y="8" width="2" height="3" fill="${fur}"/>
-<rect x="9" y="8" width="2" height="3" fill="${fur}"/>
-<rect x="4" y="8" width="5" height="4" fill="${fur}"/>
-<rect x="5" y="9" width="3" height="2" fill="${face}"/>
+<rect x="4" y="4" width="5" height="3" fill="${face}"/>
+<rect x="5" y="5" width="1" height="1" fill="${mouth}"/>
+<rect x="7" y="5" width="1" height="1" fill="${mouth}"/>
+<rect x="4" y="6" width="5" height="1" fill="${mouth}" opacity="0.55"/>
+<rect x="4" y="7" width="5" height="4" fill="${fur}"/>
+<rect x="2" y="7" width="2" height="3" fill="${fur}"/>
+<rect x="9" y="7" width="2" height="3" fill="${fur}"/>
+<rect x="4" y="11" width="2" height="1" fill="${fur}"/>
+<rect x="7" y="11" width="2" height="1" fill="${fur}"/>
 </g>
 </g>`;
 }
