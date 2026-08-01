@@ -97,12 +97,20 @@ export function clawdIdleLook(frame: number, _color: string): string {
   const blinking = Date.now() % BLINK_PERIOD_MS < BLINK_CLOSED_MS;
   const eyeScaleY = blinking ? "0.1" : "1";
   const c = "#DE886D";
+  // Clawd strolls too: leg pairs alternate every 3 frames, phase-opposed to
+  // the T-Rex next door; the body (drawn over the leg tops) bobs on the
+  // offbeat, so lifted legs never open a seam.
+  const stepA = Math.floor(frame / 3) % 2 === 1;
+  const leg = (x: number, planted: boolean) =>
+    `<rect x="${x}" y="12" width="1" height="${planted ? 3 : 2}" fill="${c}"/>`;
+  const legs = stepA
+    ? leg(3, true) + leg(5, false) + leg(9, false) + leg(11, true)
+    : leg(3, false) + leg(5, true) + leg(9, true) + leg(11, false);
+  const bob = stepA ? "0" : "-0.5";
   return `<g transform="translate(42 25) scale(4)">
 <rect x="3" y="15" width="9" height="1" fill="#000" opacity="0.45"/>
-<rect x="3" y="12" width="1" height="3" fill="${c}"/>
-<rect x="5" y="12" width="1" height="3" fill="${c}"/>
-<rect x="9" y="12" width="1" height="3" fill="${c}"/>
-<rect x="11" y="12" width="1" height="3" fill="${c}"/>
+${legs}
+<g transform="translate(0 ${bob})">
 <g transform="translate(7.5 13) scale(1 ${breatheY}) translate(-7.5 -13)">
 <rect x="2" y="6" width="11" height="7" fill="${c}"/>
 <rect x="0" y="9" width="2" height="2" fill="${c}"/>
@@ -110,6 +118,7 @@ export function clawdIdleLook(frame: number, _color: string): string {
 <g transform="translate(7.5 9) scale(1 ${eyeScaleY}) translate(-7.5 -9)">
 <rect x="4" y="8" width="1" height="2" fill="#000"/>
 <rect x="10" y="8" width="1" height="2" fill="#000"/>
+</g>
 </g>
 </g>
 </g>`;
@@ -160,13 +169,15 @@ function dinoIdleLook(frame: number, blinkPhaseMs: number): string {
     ? `<rect x="7" y="9" width="2" height="4" fill="${c}"/><rect x="8" y="12" width="3" height="1" fill="${c}"/>`
     : `<rect x="7" y="9" width="2" height="5" fill="${c}"/><rect x="7" y="13" width="3" height="1" fill="${c}"/>`;
   const bob = stepA ? "0" : "-0.5";
+  // Tail tip wags against the stride, same trick as the sauropod.
+  const tailTipY = stepA ? 4 : 3;
   return `<g transform="translate(46 35) scale(4)">
 <rect x="2" y="15" width="9" height="1" fill="#000" opacity="0.45"/>
 ${legL}
 ${legR}
 <g transform="translate(0 ${bob})">
 <g transform="translate(6.5 10) scale(1 ${breatheY}) translate(-6.5 -10)">
-<rect x="0" y="4" width="2" height="2" fill="${c}"/>
+<rect x="0" y="${tailTipY}" width="2" height="2" fill="${c}"/>
 <rect x="1" y="5" width="2" height="3" fill="${c}"/>
 <rect x="3" y="5" width="6" height="5" fill="${c}"/>
 <rect x="7" y="3" width="2" height="2" fill="${c}"/>
