@@ -296,12 +296,19 @@ function elephantIdleLook(frame: number, blinkPhaseMs: number): string {
   const trunk = stepA
     ? `<rect x="0" y="7" width="1" height="3" fill="${c}"/><rect x="1" y="9" width="1" height="1" fill="${c}"/>`
     : `<rect x="0" y="7" width="1" height="4" fill="${c}"/>`;
+  // Tail: a shaded shaft (darker than the body so it doesn't melt into the
+  // silhouette) hanging past the rump, tipped with a dark tuft in open space
+  // below the belly line. Flicks outward on the offbeat.
+  const shaft = "#7d8698";
+  const tail = stepA
+    ? `<rect x="13" y="5" width="1" height="6" fill="${shaft}"/><rect x="13" y="11" width="2" height="2" fill="${tuft}"/>`
+    : `<rect x="13" y="5" width="1" height="5" fill="${shaft}"/><rect x="14" y="10" width="1" height="1" fill="${shaft}"/><rect x="14" y="11" width="2" height="2" fill="${tuft}"/>`;
   return `<g transform="translate(44 35) scale(4)">
 <rect x="1" y="15" width="12" height="1" fill="#000" opacity="0.45"/>
 ${legs}
 <g transform="translate(0 ${bob})">
 <g transform="translate(6.5 10) scale(1 ${breatheY}) translate(-6.5 -10)">
-<rect x="13" y="4" width="1" height="4" fill="${c}"/>\n<rect x="13" y="8" width="1" height="1" fill="${tuft}"/>
+${tail}
 <rect x="4" y="4" width="9" height="7" fill="${c}"/>
 <rect x="0" y="2" width="5" height="5" fill="${c}"/>
 ${trunk}
