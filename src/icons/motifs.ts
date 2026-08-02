@@ -148,6 +148,11 @@ type Mascot = {
    *  that sits higher. Babies are scaled about this line, so a family walks on
    *  the same ground however small its members are. */
   foot: number;
+  /** Baby sprite for the `subagent` family, when a small copy of `draw`
+   *  wouldn't read as the same animal's young. A baby elephant is believably
+   *  just a small elephant; a baby hen is a chick, not a tiny hen with a comb
+   *  and wattle — those need their own draw function. Defaults to `draw`. */
+  drawBaby?: (frame: number, blinkPhaseMs: number) => string;
 };
 
 const MASCOTS: Mascot[] = [
@@ -156,7 +161,7 @@ const MASCOTS: Mascot[] = [
   { draw: sauropodIdleLook, dir: -1, foot: 95 },
   { draw: gooseIdleLook, dir: 1, foot: 95 },
   { draw: elephantIdleLook, dir: -1, foot: 95 },
-  { draw: cactusIdleLook, dir: -1, foot: 95 },
+  { draw: henIdleLook, dir: -1, foot: 95, drawBaby: chickIdleLook },
   { draw: llamaIdleLook, dir: -1, foot: 95 },
   { draw: bearIdleLook, dir: -1, foot: 95 },
 ];
@@ -294,7 +299,8 @@ const blinkSpread = (i: number): number => ((i + 1) * BLINK_PERIOD_MS) / (BABY_C
  *  toward the origin, and the whole family walks on one surface. */
 export function subagentWalk(frame: number, _color: string, slot?: number): string {
   const n = Math.max(1, slot ?? 1);
-  const { draw, dir, foot } = mascotAt(n);
+  const { draw, dir, foot, drawBaby } = mascotAt(n);
+  const drawChild = drawBaby ?? draw;
   const pivotY = foot * (1 - BABY_SCALE);
   const pivotX = 72 * (1 - BABY_SCALE);
 
@@ -307,7 +313,7 @@ export function subagentWalk(frame: number, _color: string, slot?: number): stri
     // its own clock. Monotonic and unbounded, which both channels inside the
     // mascot handle: legs take it mod 6, breathing mod 12.
     const legFrame = Math.floor(Date.now() / BABY_LEG_TICK_MS[i]);
-    const body = draw(legFrame, slotBlinkPhase(n) + blinkSpread(i));
+    const body = drawChild(legFrame, slotBlinkPhase(n) + blinkSpread(i));
     const x = (pivotX - dir * back).toFixed(2);
     family += `\n<g transform="translate(${x} ${pivotY.toFixed(2)}) scale(${BABY_SCALE})">${body}</g>`;
   }
@@ -497,58 +503,81 @@ ${trunk}
 </g>`;
 }
 
-/** A cute barrel cactus, facing left — one arm up, one out, a blossom on the
- *  crown. Having no legs to speak of, it waddles on two root nubs on the same
- *  3-frame cadence as the animals, and the arms swing against the stride. The
- *  shaded rib runs down the right side and the face sits left of centre, so
- *  the silhouette reads as turned toward the way it walks. */
-function cactusIdleLook(frame: number, blinkPhaseMs: number): string {
+/** A plump mama hen in left-facing profile — rust-brown plumage, a red comb
+ *  and wattle, and a fan of tail feathers over the rear. The wing shade sits
+ *  mid-body like a folded crescent, the same trick the elephant's ear uses to
+ *  read as a separate part without a stroked outline. */
+function henIdleLook(frame: number, blinkPhaseMs: number): string {
   const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
-  const c = "#4fa365";
-  const rib = "#357a49";
-  const spine = "#bdf0c8";
-  const flower = "#f472b6";
-  const bloom = "#fbcfe8";
-  const cheek = "#e8899f";
+  const c = "#c1793f";
+  const belly = "#eccca0";
+  const wing = "#96552a";
+  const comb = "#e5484d";
+  const bill = "#f2b134";
+  const foot = "#e2984c";
   const stepA = Math.floor(frame / 3) % 2 === 0;
-  // Same seam guard as the animals: the nubs' tops tuck a unit under the trunk.
-  const root = (x: number, planted: boolean) =>
-    `<rect x="${x}" y="12" width="2" height="${planted ? 3 : 2}" fill="${rib}"/>`;
-  const roots = stepA ? root(4, true) + root(8, false) : root(4, false) + root(8, true);
+  // Same foot-flare trick as the goose: a wide toe row under a thin shin reads
+  // as a bird's foot rather than a mammal's leg.
+  const leg = (x: number, planted: boolean) =>
+    `<rect x="${x}" y="11" width="1" height="${planted ? 3 : 2}" fill="${foot}"/>
+<rect x="${x - 1}" y="${planted ? 14 : 13}" width="3" height="1" fill="${foot}"/>`;
+  const legs = stepA ? leg(5, true) + leg(9, false) : leg(5, false) + leg(9, true);
   const bob = stepA ? "0" : "-0.5";
-  const armL = stepA
-    ? `<rect x="1" y="4" width="2" height="5" fill="${c}"/>`
-    : `<rect x="1" y="3" width="2" height="6" fill="${c}"/>`;
-  const armR = stepA
-    ? `<rect x="11" y="4" width="2" height="6" fill="${c}"/>`
-    : `<rect x="11" y="5" width="2" height="5" fill="${c}"/>`;
+  // Tail fans up on the offbeat, same wag trick as the sauropod and elephant.
+  const tailTipY = stepA ? 3 : 4;
   return `<g transform="translate(44 35) scale(4)">
 <rect x="2" y="15" width="10" height="1" fill="#000" opacity="0.45"/>
-${roots}
+${legs}
 <g transform="translate(0 ${bob})">
-<g transform="translate(6.5 12) scale(1 ${breatheY}) translate(-6.5 -12)">
-${armL}
-<rect x="2" y="7" width="2" height="2" fill="${c}"/>
-${armR}
-<rect x="10" y="8" width="2" height="2" fill="${c}"/>
-<rect x="4" y="3" width="6" height="10" fill="${c}"/>
-<rect x="5" y="2" width="4" height="1" fill="${c}"/>
-<rect x="9" y="3" width="1" height="10" fill="${rib}"/>
-<rect x="6" y="0" width="2" height="2" fill="${flower}"/>
-<rect x="6" y="0" width="1" height="1" fill="${bloom}"/>
-<rect x="4" y="3" width="1" height="1" fill="${spine}"/>
-<rect x="4" y="10" width="1" height="1" fill="${spine}"/>
-<rect x="8" y="3" width="1" height="1" fill="${spine}"/>
-<rect x="8" y="10" width="1" height="1" fill="${spine}"/>
-<rect x="4" y="8" width="1" height="1" fill="${cheek}"/>
-<rect x="5" y="8" width="2" height="1" fill="${rib}"/>
-<g transform="translate(6 6) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-6 -6)">
-<rect x="4" y="5" width="2" height="2" fill="#000"/>
-<rect x="7" y="5" width="2" height="2" fill="#000"/>
-<rect x="4" y="5" width="1" height="1" fill="#fff"/>
-<rect x="7" y="5" width="1" height="1" fill="#fff"/>
+<g transform="translate(7 8) scale(1 ${breatheY}) translate(-7 -8)">
+<rect x="12" y="3" width="2" height="4" fill="${wing}"/>
+<rect x="13" y="${tailTipY}" width="2" height="2" fill="${c}"/>
+<rect x="4" y="4" width="9" height="7" fill="${c}"/>
+<rect x="5" y="9" width="6" height="2" fill="${belly}"/>
+<rect x="7" y="5" width="4" height="3" fill="${wing}"/>
+<rect x="1" y="2" width="4" height="4" fill="${c}"/>
+<rect x="0" y="3" width="1" height="2" fill="${bill}"/>
+<rect x="1" y="0" width="1" height="2" fill="${comb}"/>
+<rect x="2" y="0" width="1" height="1" fill="${comb}"/>
+<rect x="3" y="0" width="1" height="1" fill="${comb}"/>
+<rect x="1" y="5" width="1" height="1" fill="${comb}"/>
+<g transform="translate(2.5 3.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-2.5 -3.5)">
+<rect x="2" y="3" width="1" height="1" fill="#000"/>
+</g>
+</g>
+</g>
+</g>`;
+}
+
+/** A round fluffy chick — the hen's `subagent` baby. Not a scaled-down hen: a
+ *  chick has no comb or wattle and is a different colour entirely, so reusing
+ *  `henIdleLook` at BABY_SCALE would read as a hen shrunk in a wash, not a
+ *  chick. Same shadow-at-y=15 convention as every other mascot, so the
+ *  family's shared foot line still lines it up with its mother. */
+function chickIdleLook(frame: number, blinkPhaseMs: number): string {
+  const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
+  const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
+  const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
+  const c = "#fde047";
+  const shade = "#eab308";
+  const bill = "#f97316";
+  const stepA = Math.floor(frame / 3) % 2 === 0;
+  const leg = (x: number, planted: boolean) => `<rect x="${x}" y="12" width="1" height="${planted ? 2 : 1}" fill="${bill}"/>`;
+  const legs = stepA ? leg(4, true) + leg(7, false) : leg(4, false) + leg(7, true);
+  const bob = stepA ? "0" : "-0.5";
+  return `<g transform="translate(48 35) scale(4)">
+<rect x="2" y="15" width="6" height="1" fill="#000" opacity="0.45"/>
+${legs}
+<g transform="translate(0 ${bob})">
+<g transform="translate(4.5 10) scale(1 ${breatheY}) translate(-4.5 -10)">
+<rect x="1" y="7" width="1" height="2" fill="${shade}"/>
+<rect x="1" y="5" width="7" height="6" fill="${c}"/>
+<rect x="0" y="6" width="1" height="2" fill="${bill}"/>
+<rect x="2" y="4" width="3" height="1" fill="${c}"/>
+<g transform="translate(2 7) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-2 -7)">
+<rect x="1" y="6" width="1" height="1" fill="#000"/>
 </g>
 </g>
 </g>

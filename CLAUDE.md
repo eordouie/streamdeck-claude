@@ -142,19 +142,25 @@ only "finished or needs input *since you last engaged it*".
 
 **Per-slot mascots** (`icons/motifs.ts`). Each key position gets its own pixel
 character, in key order: Clawd, Chrome T-Rex, blue sauropod, silly goose, baby
-elephant, cactus, llama, black bear cub. All walk in place on idle (leg poses
-alternating
-every 3 frames + torso bob) and blink on a shared cadence with per-slot phase
-offsets; `working` walks the character across the key and `subagent` gives it
-three desynchronised babies (`slotCharacterWalk` / `subagentWalk`).
+elephant, mama hen, llama, black bear cub. All walk in place on idle (leg poses
+alternating every 3 frames + torso bob) and blink on a shared cadence with
+per-slot phase offsets; `working` walks the character across the key and
+`subagent` gives it four desynchronised babies (`slotCharacterWalk` /
+`subagentWalk`).
 
 The single `MASCOTS` table owns each character's draw function, travel
 direction, and foot line together. Those were three parallel
 `switch ((slot - 1) % 5)` blocks, which is how you end up with a mascot that
-moonwalks or a family whose babies hover. Two drawing rules learned the hard
-way: **leg tops must tuck one unit under the body**, or the walk bob opens a
-seam; and a character darker than the key background needs a rim light and a
-catchlight eye, or it renders as a character-shaped hole.
+moonwalks or a family whose babies hover. A fourth field, `drawBaby`, is
+optional and defaults to the parent's own draw function — every baby so far
+is believably just a small copy of its parent, except the hen: a chick has no
+comb and is a different colour, so it needs its own sprite rather than a
+scaled hen.
+
+Two drawing rules learned the hard way: **leg tops must tuck one unit under
+the body**, or the walk bob opens a seam; and a character darker than the key
+background needs a rim light and a catchlight eye, or it renders as a
+character-shaped hole.
 
 **Command keys** (`command-action.ts`, UUID
 `com.julien.claudesessions.command`). Profile-baked `{label, script, args,
