@@ -166,7 +166,7 @@ const MASCOTS: Mascot[] = [
  *  translates and eight foot lines — sixteen numbers that would have to agree.
  *  Composing after the family is assembled keeps the baby pivots in the
  *  pre-drop frame, so the whole procession moves together. */
-const MASCOT_DROP = 3;
+const MASCOT_DROP = 6;
 const dropped = (body: string): string => `<g transform="translate(0 ${MASCOT_DROP})">${body}</g>`;
 
 /** Wraps, so a deck with more keys than characters repeats rather than
