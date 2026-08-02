@@ -39,6 +39,9 @@ export interface IconOptions {
   /** Owes the user a reply but the flash is snoozed (the key was pressed):
    *  draw a quiet corner dot so a glance still shows the debt. */
   awaitingReply?: boolean;
+  /** Live sessions that have no key to appear on. Set on the last slot only —
+   *  it is one global fact, and repeating it across five keys is noise. */
+  overflow?: number;
 }
 
 // Left-edge progress column geometry. The column sits at x=2..7, outside the
@@ -84,7 +87,16 @@ function renderBgBadge(accent: string): string {
   return `<text x="16" y="22" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" font-weight="700" fill="${accent}" opacity="0.8" text-anchor="start">bg</text>`;
 }
 
-export function renderIcon({ state, slot, label, frame = 0, now, todos, attention, awaitingReply }: IconOptions): string {
+/** "+N", for sessions that are running with no key left to show them on.
+ *  Sits beside the `bg` badge rather than on top of it, and stays off the
+ *  top-right where the owed-reply dot lives. Without this a sixth session is
+ *  simply absent from the deck, which is indistinguishable from not running —
+ *  the same silent-omission the provider contract forbids elsewhere. */
+function renderOverflowBadge(count: number, accent: string, shifted: boolean): string {
+  return `<text x="${shifted ? 34 : 16}" y="22" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" font-weight="700" fill="${accent}" opacity="0.8" text-anchor="start">+${count}</text>`;
+}
+
+export function renderIcon({ state, slot, label, frame = 0, now, todos, attention, awaitingReply, overflow }: IconOptions): string {
   const t = now ?? Date.now();
   const { bg, accent, label: labelColor } = STATES[state].palette;
   const flash = attention === true;
@@ -130,6 +142,8 @@ export function renderIcon({ state, slot, label, frame = 0, now, todos, attentio
     : "";
 
   const bgBadge = isBgState(state) ? renderBgBadge(accent) : "";
+  const overflowBadge =
+    overflow !== undefined && overflow > 0 ? renderOverflowBadge(overflow, accent, isBgState(state)) : "";
 
   // Shared triangle wave: the state's own urgent pulse (pulseBg) and the
   // unacknowledged-attention flash both ride it, PULSE_BG_SPEED× faster than
@@ -176,6 +190,7 @@ export function renderIcon({ state, slot, label, frame = 0, now, todos, attentio
 <rect width="144" height="144" fill="${bg}"/>
 ${pulseOverlay}
 ${bgBadge}
+${overflowBadge}
 ${owedDot}
 ${topLine}
 <g transform="translate(0,${MOTIF_DY})">${STATES[state].motif(frame, accent, slot)}</g>

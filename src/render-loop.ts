@@ -17,6 +17,10 @@ export async function renderAll(
   frame: number,
 ): Promise<void> {
   const ordered = slotAction.orderedActions();
+  // Sessions with no key left to appear on. Surfaced on the last slot so a
+  // session beyond the deck's capacity is visibly hidden rather than simply
+  // absent — absent and not-running look identical otherwise.
+  const hidden = Math.max(0, entries.length - ordered.length);
   const pending: Promise<void>[] = [];
   for (let i = 0; i < ordered.length; i++) {
     const action = ordered[i];
@@ -40,6 +44,7 @@ export async function renderAll(
           todos,
           attention: entry.attention,
           awaitingReply: entry.awaitingReply,
+          overflow: i === ordered.length - 1 ? hidden : 0,
         })
       : renderIcon({ state: "empty", slot: slotIndex, label: "", frame: 0 });
     const dataUrl = "data:image/svg+xml;base64," + Buffer.from(svg, "utf8").toString("base64");
