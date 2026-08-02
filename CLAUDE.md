@@ -141,8 +141,9 @@ tile pulses and strobes its border white until the key is pressed
 only "finished or needs input *since you last engaged it*".
 
 **Per-slot mascots** (`icons/motifs.ts`). Each key position gets its own pixel
-character: Clawd, Chrome T-Rex, blue sauropod, llama, baby elephant, cactus,
-silly goose, black bear cub. All walk in place on idle (alternating leg poses
+character, in key order: Clawd, Chrome T-Rex, blue sauropod, silly goose, baby
+elephant, cactus, llama, black bear cub. All walk in place on idle (leg poses
+alternating
 every 3 frames + torso bob) and blink on a shared cadence with per-slot phase
 offsets; `working` walks the character across the key and `subagent` gives it
 three desynchronised babies (`slotCharacterWalk` / `subagentWalk`).

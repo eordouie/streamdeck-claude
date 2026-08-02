@@ -154,12 +154,20 @@ const MASCOTS: Mascot[] = [
   { draw: clawdIdleLook, dir: 1, foot: 85 },
   { draw: dinoIdleLook, dir: 1, foot: 95 },
   { draw: sauropodIdleLook, dir: -1, foot: 95 },
-  { draw: llamaIdleLook, dir: -1, foot: 95 },
+  { draw: gooseIdleLook, dir: 1, foot: 95 },
   { draw: elephantIdleLook, dir: -1, foot: 95 },
   { draw: cactusIdleLook, dir: -1, foot: 95 },
-  { draw: gooseIdleLook, dir: 1, foot: 95 },
+  { draw: llamaIdleLook, dir: -1, foot: 95 },
   { draw: bearIdleLook, dir: -1, foot: 95 },
 ];
+
+/** Every mascot sits this much lower than its own sprite geometry puts it,
+ *  applied once to the composed group rather than baked into eight base
+ *  translates and eight foot lines — sixteen numbers that would have to agree.
+ *  Composing after the family is assembled keeps the baby pivots in the
+ *  pre-drop frame, so the whole procession moves together. */
+const MASCOT_DROP = 3;
+const dropped = (body: string): string => `<g transform="translate(0 ${MASCOT_DROP})">${body}</g>`;
 
 /** Wraps, so a deck with more keys than characters repeats rather than
  *  rendering nothing. */
@@ -171,7 +179,7 @@ const slotBlinkPhase = (slot: number): number => (Math.max(1, slot) - 1) * 700;
 
 export function slotCharacterIdle(frame: number, _color: string, slot?: number): string {
   const n = Math.max(1, slot ?? 1);
-  return mascotAt(n).draw(frame, slotBlinkPhase(n));
+  return dropped(mascotAt(n).draw(frame, slotBlinkPhase(n)));
 }
 
 /** One full traverse of the key while a session is working. Wall-clock
@@ -221,7 +229,7 @@ function traverse(body: string, span: number, dir: 1 | -1): string {
 export function slotCharacterWalk(frame: number, _color: string, slot?: number): string {
   const n = Math.max(1, slot ?? 1);
   const m = mascotAt(n);
-  return traverse(m.draw(frame, slotBlinkPhase(n)), WALK_SPAN, m.dir);
+  return dropped(traverse(m.draw(frame, slotBlinkPhase(n)), WALK_SPAN, m.dir));
 }
 
 /** Baby leg cadences, in ms per unit of the leg cycle — one entry per baby.
@@ -305,7 +313,7 @@ export function subagentWalk(frame: number, _color: string, slot?: number): stri
   }
   // The pace is unchanged by the longer span — `traverse` derives time from
   // distance, so the same legs cover more ground in proportionally more time.
-  return traverse(family, FAMILY_W + FAMILY_TAILGAP, dir);
+  return dropped(traverse(family, FAMILY_W + FAMILY_TAILGAP, dir));
 }
 
 /** Blink cadence shared by every mascot: a quick ~150 ms closure every
