@@ -163,7 +163,7 @@ const MASCOTS: Mascot[] = [
   { draw: elephantIdleLook, dir: -1, foot: 95 },
   { draw: henIdleLook, dir: -1, foot: 95, drawBaby: chickIdleLook },
   { draw: llamaIdleLook, dir: -1, foot: 95 },
-  { draw: bearIdleLook, dir: -1, foot: 95 },
+  { draw: pandaIdleLook, dir: -1, foot: 95 },
 ];
 
 /** Every mascot sits this much lower than its own sprite geometry puts it,
@@ -503,48 +503,63 @@ ${trunk}
 </g>`;
 }
 
-/** A plump mama hen in left-facing profile — rust-brown plumage, a red comb
- *  and wattle, and a fan of tail feathers over the rear. The wing shade sits
- *  mid-body like a folded crescent, the same trick the elephant's ear uses to
- *  read as a separate part without a stroked outline. */
+/** A plump white hen in left-facing profile, styled after a reference photo
+ *  (kawaii-style vector illustration: one dominant egg-shaped body, huge
+ *  glossy eyes, big round blush, barely-there feet). Adapted rather than
+ *  copied outright — the reference is front-facing with heavy black outlines,
+ *  which would break two things every other mascot on this deck relies on:
+ *  a profile silhouette (so `dir` means something for the walk) and flat
+ *  fills with no stroke (so the family reads as one consistent set).
+ *
+ *  Head and body are ONE continuous taper (no separate head rectangle) —
+ *  the previous version's neck line was exactly the seam a single unified
+ *  silhouette removes. The face features sit directly on that silhouette's
+ *  front-upper curve instead of on their own block. */
 function henIdleLook(frame: number, blinkPhaseMs: number): string {
   const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
-  const c = "#c1793f";
-  const belly = "#eccca0";
-  const wing = "#96552a";
-  const comb = "#e5484d";
-  const bill = "#f2b134";
-  const foot = "#e2984c";
+  const c = "#fbf8f3";
+  const shade = "#ded5c4";
+  const comb = "#ff3b30";
+  const bill = "#ffb020";
+  const foot = "#f0993f";
+  const blush = "#ffb0c0";
   const stepA = Math.floor(frame / 3) % 2 === 0;
-  // Same foot-flare trick as the goose: a wide toe row under a thin shin reads
-  // as a bird's foot rather than a mammal's leg.
+  // Feet shrink to near-nothing under the belly, matching the reference —
+  // still a foot-flare (wide toe row under a thin shin reads as a bird), just
+  // barely peeking out rather than a full visible leg.
   const leg = (x: number, planted: boolean) =>
-    `<rect x="${x}" y="11" width="1" height="${planted ? 3 : 2}" fill="${foot}"/>
-<rect x="${x - 1}" y="${planted ? 14 : 13}" width="3" height="1" fill="${foot}"/>`;
+    `<rect x="${x}" y="11" width="1" height="${planted ? 2 : 1}" fill="${foot}"/>
+<rect x="${x - 1}" y="${planted ? 13 : 12}" width="2" height="1" fill="${foot}"/>`;
   const legs = stepA ? leg(5, true) + leg(9, false) : leg(5, false) + leg(9, true);
   const bob = stepA ? "0" : "-0.5";
-  // Tail fans up on the offbeat, same wag trick as the sauropod and elephant.
-  const tailTipY = stepA ? 3 : 4;
-  return `<g transform="translate(44 35) scale(4)">
-<rect x="2" y="15" width="10" height="1" fill="#000" opacity="0.45"/>
+  // The wing lifts on the offbeat, same wag trick as the sauropod and
+  // elephant's tail, pushed further here to echo the reference's raised fan.
+  const tailTipY = stepA ? 1 : 2;
+  return `<g transform="translate(38 35) scale(4)">
+<rect x="0" y="15" width="17" height="1" fill="#000" opacity="0.45"/>
 ${legs}
 <g transform="translate(0 ${bob})">
-<g transform="translate(7 8) scale(1 ${breatheY}) translate(-7 -8)">
-<rect x="12" y="3" width="2" height="4" fill="${wing}"/>
-<rect x="13" y="${tailTipY}" width="2" height="2" fill="${c}"/>
-<rect x="4" y="4" width="9" height="7" fill="${c}"/>
-<rect x="5" y="9" width="6" height="2" fill="${belly}"/>
-<rect x="7" y="5" width="4" height="3" fill="${wing}"/>
-<rect x="1" y="2" width="4" height="4" fill="${c}"/>
-<rect x="0" y="3" width="1" height="2" fill="${bill}"/>
-<rect x="1" y="0" width="1" height="2" fill="${comb}"/>
-<rect x="2" y="0" width="1" height="1" fill="${comb}"/>
-<rect x="3" y="0" width="1" height="1" fill="${comb}"/>
-<rect x="1" y="5" width="1" height="1" fill="${comb}"/>
-<g transform="translate(2.5 3.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-2.5 -3.5)">
-<rect x="2" y="3" width="1" height="1" fill="#000"/>
+<g transform="translate(7.5 6) scale(1 ${breatheY}) translate(-7.5 -6)">
+<rect x="14" y="2" width="2" height="6" fill="${shade}"/>
+<rect x="15" y="${tailTipY}" width="2" height="3" fill="${c}"/>
+<rect x="5" y="2" width="6" height="1" fill="${c}"/>
+<rect x="3" y="3" width="9" height="1" fill="${c}"/>
+<rect x="1" y="4" width="12" height="1" fill="${c}"/>
+<rect x="1" y="5" width="13" height="3" fill="${c}"/>
+<rect x="2" y="8" width="11" height="1" fill="${c}"/>
+<rect x="3" y="9" width="9" height="1" fill="${c}"/>
+<rect x="4" y="10" width="7" height="1" fill="${c}"/>
+<rect x="1" y="6" width="2" height="2" fill="${blush}"/>
+<rect x="0" y="4" width="1" height="2" fill="${bill}"/>
+<rect x="0" y="6" width="1" height="1" fill="${comb}"/>
+<rect x="6" y="0" width="1" height="2" fill="${comb}"/>
+<rect x="7" y="1" width="1" height="1" fill="${comb}"/>
+<rect x="8" y="0" width="1" height="2" fill="${comb}"/>
+<g transform="translate(3 5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-3 -5)">
+<rect x="2" y="4" width="2" height="2" fill="#000"/>
+<rect x="3" y="4" width="1" height="1" fill="#fff"/>
 </g>
 </g>
 </g>
@@ -633,48 +648,73 @@ ${mouth}
 </g>`;
 }
 
-/** A black bear cub in left-facing profile — round ears, tan muzzle, stumpy
- *  legs. Fur is a lifted charcoal rather than true black, with a rim light
- *  along the back and a white catchlight for the eye: on the near-black key
- *  background an actually-black bear is a bear-shaped hole. */
-function bearIdleLook(frame: number, blinkPhaseMs: number): string {
+/** A round panda in left-facing profile — two capped ears, one big eye patch
+ *  with a white catchlight, and the shoulder band running down into the front
+ *  leg. The white coat carries the silhouette, so the black only has to
+ *  survive the four edges it owns: the two ears, the leading leg, and the
+ *  rump. Those are a lifted charcoal with a rim light along whatever they show
+ *  to the key background — true black on a #0f1115 tile is a panda-shaped
+ *  hole, which is precisely how the bear this replaces first read. The eye is
+ *  the same trap one size down: a pupil inside a black patch is invisible, so
+ *  the eye IS the catchlight, and the blink closes the white rather than the
+ *  black. */
+function pandaIdleLook(frame: number, blinkPhaseMs: number): string {
   const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
-  const c = "#413c40";
-  const rim = "#6b616a";
-  const muz = "#caa985";
-  const dark = "#17171d";
-  const glint = "#f8fafc";
+  const c = "#f4f1e8";
+  const shade = "#d2ccbe";
+  const blk = "#3a3742";
+  // The far ear reads as further away by being a shade deeper with a dimmer
+  // rim — the only depth cue available in a flat side profile.
+  const farBlk = "#2f2c38";
+  const rim = "#6b6577";
+  const farRim = "#4c4757";
+  const nose = "#211f27";
+  const glint = "#fdfdff";
   const stepA = Math.floor(frame / 3) % 2 === 1;
-  const leg = (x: number, planted: boolean) =>
-    `<rect x="${x}" y="11" width="3" height="${planted ? 4 : 3}" fill="${c}"/>`;
-  const legs = stepA ? leg(5, true) + leg(10, false) : leg(5, false) + leg(10, true);
+  // Leg tops tuck one unit under the body (y=11 against a belly that ends at
+  // y=12) so the bob can't open a seam. `rimX` is the column the leg shows to
+  // the background — unlit, a black leg on a black tile leaves the panda
+  // hovering over the shadow rather than standing on it.
+  const leg = (x: number, rimX: number, planted: boolean) => {
+    const h = planted ? 4 : 3;
+    return `<rect x="${x}" y="11" width="3" height="${h}" fill="${blk}"/>
+<rect x="${rimX}" y="11" width="1" height="${h}" fill="${rim}"/>`;
+  };
+  const legs = stepA
+    ? leg(7, 7, true) + leg(12, 14, false)
+    : leg(7, 7, false) + leg(12, 14, true);
   const bob = stepA ? "0" : "-0.5";
-  // A cub's head is heavy: it nods a beat behind the shoulders. The head is
-  // drawn after the body and overlaps it by four rows, so the nod slides the
-  // skull against the shoulders instead of opening a gap at the neck.
+  // The head is most of this animal, so it nods a beat behind the shoulders.
+  // It is drawn after the body and overlaps it by five rows, so the nod slides
+  // the skull against the chest instead of opening a gap at the neck.
   const nod = stepA ? "0" : "0.5";
   return `<g transform="translate(42 35) scale(4)">
 <rect x="1" y="15" width="13" height="1" fill="#000" opacity="0.45"/>
 ${legs}
 <g transform="translate(0 ${bob})">
-<g transform="translate(7 11) scale(1 ${breatheY}) translate(-7 -11)">
-<rect x="14" y="7" width="1" height="2" fill="${c}"/>
-<rect x="4" y="5" width="10" height="7" fill="${c}"/>
-<rect x="5" y="5" width="8" height="1" fill="${rim}"/>
+<g transform="translate(8 12) scale(1 ${breatheY}) translate(-8 -12)">
+<rect x="6" y="5" width="8" height="1" fill="${c}"/>
+<rect x="5" y="6" width="10" height="5" fill="${c}"/>
+<rect x="6" y="11" width="8" height="1" fill="${shade}"/>
+<rect x="12" y="10" width="3" height="2" fill="${blk}"/>
+<rect x="14" y="10" width="1" height="2" fill="${rim}"/>
+<rect x="7" y="5" width="3" height="7" fill="${blk}"/>
+<rect x="7" y="5" width="3" height="1" fill="${rim}"/>
 <g transform="translate(0 ${nod})">
-<rect x="1" y="1" width="2" height="2" fill="${c}"/>
-<rect x="4" y="1" width="2" height="2" fill="${c}"/>
-<rect x="2" y="2" width="1" height="1" fill="${rim}"/>
-<rect x="4" y="2" width="1" height="1" fill="${rim}"/>
-<rect x="1" y="3" width="6" height="7" fill="${c}"/>
-<rect x="2" y="3" width="4" height="1" fill="${rim}"/>
-<rect x="0" y="6" width="3" height="4" fill="${muz}"/>
-<rect x="0" y="6" width="2" height="1" fill="${dark}"/>
-<rect x="1" y="8" width="1" height="1" fill="${dark}"/>
-<g transform="translate(4.5 5.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-4.5 -5.5)">
-<rect x="4" y="5" width="1" height="1" fill="${glint}"/>
+<rect x="1" y="2" width="3" height="2" fill="${farBlk}"/>
+<rect x="1" y="1" width="2" height="1" fill="${farRim}"/>
+<rect x="6" y="1" width="3" height="3" fill="${blk}"/>
+<rect x="6" y="0" width="2" height="1" fill="${rim}"/>
+<rect x="1" y="3" width="7" height="1" fill="${c}"/>
+<rect x="0" y="4" width="8" height="5" fill="${c}"/>
+<rect x="1" y="9" width="7" height="1" fill="${c}"/>
+<rect x="1" y="4" width="3" height="1" fill="${blk}"/>
+<rect x="1" y="5" width="4" height="2" fill="${blk}"/>
+<rect x="1" y="8" width="2" height="1" fill="${nose}"/>
+<g transform="translate(2.5 5.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-2.5 -5.5)">
+<rect x="2" y="5" width="1" height="1" fill="${glint}"/>
 </g>
 </g>
 </g>

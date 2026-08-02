@@ -142,7 +142,7 @@ only "finished or needs input *since you last engaged it*".
 
 **Per-slot mascots** (`icons/motifs.ts`). Each key position gets its own pixel
 character, in key order: Clawd, Chrome T-Rex, blue sauropod, silly goose, baby
-elephant, mama hen, llama, black bear cub. All walk in place on idle (leg poses
+elephant, mama hen, llama, panda. All walk in place on idle (leg poses
 alternating every 3 frames + torso bob) and blink on a shared cadence with
 per-slot phase offsets; `working` walks the character across the key and
 `subagent` gives it four desynchronised babies (`slotCharacterWalk` /
