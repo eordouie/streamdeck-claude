@@ -108,7 +108,7 @@ The Windows hook is **not copied** — `install-hook.sh --target=windows` regist
 
 This checkout is Ehsan's fork (`origin` = eordouie/streamdeck-claude,
 `upstream` = JulienCr). Branch `ghostty-focus`, based on upstream's
-`feat/vscode-terminal-focus`. Target: **macOS + Ghostty**, five session slots
+`feat/vscode-terminal-focus`. Target: **macOS + Ghostty**, eight session slots
 plus command keys on a Stream Deck MK.2.
 
 ### What the fork adds
@@ -140,12 +140,20 @@ tile pulses and strobes its border white until the key is pressed
 (`acknowledge()`) or the session goes busy again. Static idle does not flash —
 only "finished or needs input *since you last engaged it*".
 
-**Per-slot mascots** (`icons/motifs.ts`, `slotCharacterIdle`). Each key
-position gets its own pixel character on idle: Clawd, Chrome T-Rex, blue
-sauropod, llama, baby elephant. Four walk (alternating leg poses every 3
-frames + torso bob), all blink on a shared cadence with per-slot phase
-offsets. Drawing rule learned the hard way: **leg tops must tuck one unit
-under the body**, or the walk bob opens a seam.
+**Per-slot mascots** (`icons/motifs.ts`). Each key position gets its own pixel
+character: Clawd, Chrome T-Rex, blue sauropod, llama, baby elephant, cactus,
+silly goose, black bear cub. All walk in place on idle (alternating leg poses
+every 3 frames + torso bob) and blink on a shared cadence with per-slot phase
+offsets; `working` walks the character across the key and `subagent` gives it
+three desynchronised babies (`slotCharacterWalk` / `subagentWalk`).
+
+The single `MASCOTS` table owns each character's draw function, travel
+direction, and foot line together. Those were three parallel
+`switch ((slot - 1) % 5)` blocks, which is how you end up with a mascot that
+moonwalks or a family whose babies hover. Two drawing rules learned the hard
+way: **leg tops must tuck one unit under the body**, or the walk bob opens a
+seam; and a character darker than the key background needs a rim light and a
+catchlight eye, or it renders as a character-shaped hole.
 
 **Command keys** (`command-action.ts`, UUID
 `com.julien.claudesessions.command`). Profile-baked `{label, script, args,
@@ -169,9 +177,10 @@ press — landing on the tab is the feedback.
 Key layout and key behaviours live in the dotfiles repo, deliberately, so this
 fork's diff against upstream stays upstreamable:
 
-- `~/Projects/dotfiles/streamdeck/layout.toml` — 9 keys declared: the five
-  `com.julien.claudesessions.slot` entries on row 0 (this plugin), plus four
-  `kind = "signal"` entries on rows 1-2 belonging to the sibling
+- `~/Projects/dotfiles/streamdeck/layout.toml` — 12 keys declared: eight
+  `com.julien.claudesessions.slot` entries, five on row 0 and three on row 1
+  left (this plugin), plus four
+  `kind = "signal"` entries on rows 1-2 right belonging to the sibling
   `com.eordouie.decksignals` plugin (`~/Projects/deck-signals`) —
   `signal = "meeting" | "slack" | "github" | "repos"`, mapped to that
   plugin's action UUIDs by `build_claude_page.py`. The `command` kind/action

@@ -128,33 +128,50 @@ ${legs}
  *  wall-clock). Blinks are phase-shifted per slot so the row doesn't blink
  *  in unison. Native palettes — like Clawd, the characters keep their own
  *  colors while the idle palette drives the chrome. */
-/** A slot's mascot as a uniform `(frame, blinkPhaseMs)` function. The walking
- *  and subagent motifs drive those two channels independently of the slot,
- *  which is the only thing `slotCharacterIdle` derives them from — a family of
- *  the same character needs one sprite per member on its own phase. */
-function mascotFor(slot: number): (frame: number, blinkPhaseMs: number) => string {
-  switch ((Math.max(1, slot) - 1) % 5) {
-    case 1: return dinoIdleLook;
-    case 2: return sauropodIdleLook;
-    case 3: return llamaIdleLook;
-    case 4: return elephantIdleLook;
-    default: return clawdIdleLook;
-  }
-}
+/** One key's character, and the two facts the motion code needs about it.
+ *
+ *  A mascot is a uniform `(frame, blinkPhaseMs)` function: the walking and
+ *  subagent motifs drive those two channels independently of the slot, which
+ *  is the only thing `slotCharacterIdle` derives them from — a family of the
+ *  same character needs one sprite per member on its own phase.
+ *
+ *  Direction and foot line live here rather than in their own per-slot
+ *  switches. They were three parallel `switch ((slot - 1) % 5)` blocks, which
+ *  is a standing invitation to add a character to two of them and leave the
+ *  third behind — a mascot that moonwalks, or a family whose babies hover. */
+type Mascot = {
+  draw: (frame: number, blinkPhaseMs: number) => string;
+  /** Travel direction. Every mascot walks the way it faces, or it moonwalks. */
+  dir: 1 | -1;
+  /** Key-space y of the shadow: the sprite's base translate + 60, since every
+   *  mascot draws its shadow at local y=15 under `scale(4)`. Clawd is the one
+   *  that sits higher. Babies are scaled about this line, so a family walks on
+   *  the same ground however small its members are. */
+  foot: number;
+};
+
+const MASCOTS: Mascot[] = [
+  { draw: clawdIdleLook, dir: 1, foot: 85 },
+  { draw: dinoIdleLook, dir: 1, foot: 95 },
+  { draw: sauropodIdleLook, dir: -1, foot: 95 },
+  { draw: llamaIdleLook, dir: -1, foot: 95 },
+  { draw: elephantIdleLook, dir: -1, foot: 95 },
+  { draw: cactusIdleLook, dir: -1, foot: 95 },
+  { draw: gooseIdleLook, dir: 1, foot: 95 },
+  { draw: bearIdleLook, dir: -1, foot: 95 },
+];
+
+/** Wraps, so a deck with more keys than characters repeats rather than
+ *  rendering nothing. */
+const mascotAt = (slot: number): Mascot => MASCOTS[(Math.max(1, slot) - 1) % MASCOTS.length];
 
 /** Blink phase for a slot's own mascot — staggered so the row never blinks in
  *  unison. Babies offset further off this. */
 const slotBlinkPhase = (slot: number): number => (Math.max(1, slot) - 1) * 700;
 
-/** Key-space y of a mascot's shadow. Every mascot draws its shadow at local
- *  y=15 under `scale(4)`, so this is just its base translate + 60 — Clawd is
- *  the one that sits higher. Babies are scaled about this line, so a family
- *  walks on the same ground however small its members are. */
-const footLine = (slot: number): number => ((Math.max(1, slot) - 1) % 5 === 0 ? 85 : 95);
-
 export function slotCharacterIdle(frame: number, _color: string, slot?: number): string {
   const n = Math.max(1, slot ?? 1);
-  return mascotFor(n)(frame, slotBlinkPhase(n));
+  return mascotAt(n).draw(frame, slotBlinkPhase(n));
 }
 
 /** One full traverse of the key while a session is working. Wall-clock
@@ -170,20 +187,6 @@ export const WALK_PERIOD_MS = 5200;
  *  enters one side while its tail is still leaving the other — a full exit
  *  followed by a re-entry would leave the tile empty for part of every loop. */
 const WALK_SPAN = 144;
-
-/** Every mascot travels the way it faces, or it moonwalks. Slots 3-5
- *  (sauropod, llama, elephant) are drawn in left-facing profile; the T-Rex
- *  faces right, and Clawd is front-on with no preferred side. */
-function walkDirection(slot: number): 1 | -1 {
-  switch ((Math.max(1, slot) - 1) % 5) {
-    case 2:
-    case 3:
-    case 4:
-      return -1;
-    default:
-      return 1;
-  }
-}
 
 /** The per-slot mascot from `slotCharacterIdle`, walking across the key and
  *  wrapping. Used for `working` in place of the spinner arc.
@@ -217,7 +220,8 @@ function traverse(body: string, span: number, dir: 1 | -1): string {
 
 export function slotCharacterWalk(frame: number, _color: string, slot?: number): string {
   const n = Math.max(1, slot ?? 1);
-  return traverse(mascotFor(n)(frame, slotBlinkPhase(n)), WALK_SPAN, walkDirection(n));
+  const m = mascotAt(n);
+  return traverse(m.draw(frame, slotBlinkPhase(n)), WALK_SPAN, m.dir);
 }
 
 /** How many babies trail the parent while a Task subagent runs. */
@@ -277,9 +281,8 @@ const BABY_LEG_TICK_MS = [94, 83, 101] as const;
  *  toward the origin, and the whole family walks on one surface. */
 export function subagentWalk(frame: number, _color: string, slot?: number): string {
   const n = Math.max(1, slot ?? 1);
-  const dir = walkDirection(n);
-  const draw = mascotFor(n);
-  const pivotY = footLine(n) * (1 - BABY_SCALE);
+  const { draw, dir, foot } = mascotAt(n);
+  const pivotY = foot * (1 - BABY_SCALE);
   const pivotX = 72 * (1 - BABY_SCALE);
 
   let family = draw(frame, slotBlinkPhase(n));
@@ -475,6 +478,162 @@ ${trunk}
 <rect x="5" y="4" width="1" height="1" fill="${pink}"/>
 <g transform="translate(1.5 4.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-1.5 -4.5)">
 <rect x="1" y="4" width="1" height="1" fill="#000"/>
+</g>
+</g>
+</g>
+</g>`;
+}
+
+/** A cute barrel cactus, facing left — one arm up, one out, a blossom on the
+ *  crown. Having no legs to speak of, it waddles on two root nubs on the same
+ *  3-frame cadence as the animals, and the arms swing against the stride. The
+ *  shaded rib runs down the right side and the face sits left of centre, so
+ *  the silhouette reads as turned toward the way it walks. */
+function cactusIdleLook(frame: number, blinkPhaseMs: number): string {
+  const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
+  const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
+  const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
+  const c = "#4fa365";
+  const rib = "#357a49";
+  const spine = "#bdf0c8";
+  const flower = "#f472b6";
+  const bloom = "#fbcfe8";
+  const cheek = "#e8899f";
+  const stepA = Math.floor(frame / 3) % 2 === 0;
+  // Same seam guard as the animals: the nubs' tops tuck a unit under the trunk.
+  const root = (x: number, planted: boolean) =>
+    `<rect x="${x}" y="12" width="2" height="${planted ? 3 : 2}" fill="${rib}"/>`;
+  const roots = stepA ? root(4, true) + root(8, false) : root(4, false) + root(8, true);
+  const bob = stepA ? "0" : "-0.5";
+  const armL = stepA
+    ? `<rect x="1" y="4" width="2" height="5" fill="${c}"/>`
+    : `<rect x="1" y="3" width="2" height="6" fill="${c}"/>`;
+  const armR = stepA
+    ? `<rect x="11" y="4" width="2" height="6" fill="${c}"/>`
+    : `<rect x="11" y="5" width="2" height="5" fill="${c}"/>`;
+  return `<g transform="translate(44 35) scale(4)">
+<rect x="2" y="15" width="10" height="1" fill="#000" opacity="0.45"/>
+${roots}
+<g transform="translate(0 ${bob})">
+<g transform="translate(6.5 12) scale(1 ${breatheY}) translate(-6.5 -12)">
+${armL}
+<rect x="2" y="7" width="2" height="2" fill="${c}"/>
+${armR}
+<rect x="10" y="8" width="2" height="2" fill="${c}"/>
+<rect x="4" y="3" width="6" height="10" fill="${c}"/>
+<rect x="5" y="2" width="4" height="1" fill="${c}"/>
+<rect x="9" y="3" width="1" height="10" fill="${rib}"/>
+<rect x="6" y="0" width="2" height="2" fill="${flower}"/>
+<rect x="6" y="0" width="1" height="1" fill="${bloom}"/>
+<rect x="4" y="3" width="1" height="1" fill="${spine}"/>
+<rect x="4" y="10" width="1" height="1" fill="${spine}"/>
+<rect x="8" y="3" width="1" height="1" fill="${spine}"/>
+<rect x="8" y="10" width="1" height="1" fill="${spine}"/>
+<rect x="4" y="8" width="1" height="1" fill="${cheek}"/>
+<rect x="5" y="8" width="2" height="1" fill="${rib}"/>
+<g transform="translate(6 6) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-6 -6)">
+<rect x="4" y="5" width="2" height="2" fill="#000"/>
+<rect x="7" y="5" width="2" height="2" fill="#000"/>
+<rect x="4" y="5" width="1" height="1" fill="#fff"/>
+<rect x="7" y="5" width="1" height="1" fill="#fff"/>
+</g>
+</g>
+</g>
+</g>`;
+}
+
+/** A silly goose in right-facing profile — long neck, orange bill, and one
+ *  feather that refuses to lie flat. The silliness is in the timing rather
+ *  than the drawing: the bill falls open mid-stride (tongue and all) and the
+ *  head bobs against the body, the way a goose walks when it has opinions. */
+function gooseIdleLook(frame: number, blinkPhaseMs: number): string {
+  const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
+  const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
+  const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
+  const c = "#f8fafc";
+  const shade = "#d4d4d8";
+  const bill = "#f59e0b";
+  const foot = "#ea9a1b";
+  const tongue = "#fb7185";
+  const stepA = Math.floor(frame / 3) % 2 === 0;
+  const leg = (x: number, planted: boolean) =>
+    `<rect x="${x}" y="11" width="1" height="${planted ? 3 : 2}" fill="${foot}"/>
+<rect x="${x - 1}" y="${planted ? 14 : 13}" width="3" height="1" fill="${foot}"/>`;
+  const legs = stepA ? leg(4, true) + leg(7, false) : leg(4, false) + leg(7, true);
+  const bob = stepA ? "0" : "-0.5";
+  // Head rides opposite the body so the neck visibly pumps rather than the
+  // whole bird moving as one block.
+  const headBob = stepA ? "-0.5" : "0";
+  const honk = !stepA;
+  const lowerBill = `<rect x="12" y="${honk ? 4 : 3}" width="2" height="1" fill="${bill}"/>`;
+  const mouth = honk ? `<rect x="12" y="3" width="1" height="1" fill="${tongue}"/>` : "";
+  return `<g transform="translate(42 35) scale(4)">
+<rect x="1" y="15" width="11" height="1" fill="#000" opacity="0.45"/>
+${legs}
+<g transform="translate(0 ${bob})">
+<g transform="translate(5 11) scale(1 ${breatheY}) translate(-5 -11)">
+<rect x="0" y="7" width="1" height="2" fill="${c}"/>
+<rect x="1" y="7" width="9" height="5" fill="${c}"/>
+<rect x="3" y="9" width="4" height="2" fill="${shade}"/>
+<g transform="translate(0 ${headBob})">
+<rect x="8" y="3" width="2" height="5" fill="${c}"/>
+<rect x="8" y="1" width="4" height="3" fill="${c}"/>
+<rect x="9" y="0" width="1" height="1" fill="${c}"/>
+<rect x="12" y="2" width="3" height="1" fill="${bill}"/>
+${lowerBill}
+${mouth}
+<g transform="translate(10.5 2.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-10.5 -2.5)">
+<rect x="10" y="2" width="1" height="1" fill="#000"/>
+</g>
+</g>
+</g>
+</g>
+</g>`;
+}
+
+/** A black bear cub in left-facing profile — round ears, tan muzzle, stumpy
+ *  legs. Fur is a lifted charcoal rather than true black, with a rim light
+ *  along the back and a white catchlight for the eye: on the near-black key
+ *  background an actually-black bear is a bear-shaped hole. */
+function bearIdleLook(frame: number, blinkPhaseMs: number): string {
+  const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
+  const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
+  const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
+  const c = "#413c40";
+  const rim = "#6b616a";
+  const muz = "#caa985";
+  const dark = "#17171d";
+  const glint = "#f8fafc";
+  const stepA = Math.floor(frame / 3) % 2 === 1;
+  const leg = (x: number, planted: boolean) =>
+    `<rect x="${x}" y="11" width="3" height="${planted ? 4 : 3}" fill="${c}"/>`;
+  const legs = stepA ? leg(5, true) + leg(10, false) : leg(5, false) + leg(10, true);
+  const bob = stepA ? "0" : "-0.5";
+  // A cub's head is heavy: it nods a beat behind the shoulders. The head is
+  // drawn after the body and overlaps it by four rows, so the nod slides the
+  // skull against the shoulders instead of opening a gap at the neck.
+  const nod = stepA ? "0" : "0.5";
+  return `<g transform="translate(42 35) scale(4)">
+<rect x="1" y="15" width="13" height="1" fill="#000" opacity="0.45"/>
+${legs}
+<g transform="translate(0 ${bob})">
+<g transform="translate(7 11) scale(1 ${breatheY}) translate(-7 -11)">
+<rect x="14" y="7" width="1" height="2" fill="${c}"/>
+<rect x="4" y="5" width="10" height="7" fill="${c}"/>
+<rect x="5" y="5" width="8" height="1" fill="${rim}"/>
+<g transform="translate(0 ${nod})">
+<rect x="1" y="1" width="2" height="2" fill="${c}"/>
+<rect x="4" y="1" width="2" height="2" fill="${c}"/>
+<rect x="2" y="2" width="1" height="1" fill="${rim}"/>
+<rect x="4" y="2" width="1" height="1" fill="${rim}"/>
+<rect x="1" y="3" width="6" height="7" fill="${c}"/>
+<rect x="2" y="3" width="4" height="1" fill="${rim}"/>
+<rect x="0" y="6" width="3" height="4" fill="${muz}"/>
+<rect x="0" y="6" width="2" height="1" fill="${dark}"/>
+<rect x="1" y="8" width="1" height="1" fill="${dark}"/>
+<g transform="translate(4.5 5.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-4.5 -5.5)">
+<rect x="4" y="5" width="1" height="1" fill="${glint}"/>
+</g>
 </g>
 </g>
 </g>
