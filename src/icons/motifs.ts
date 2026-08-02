@@ -224,8 +224,32 @@ export function slotCharacterWalk(frame: number, _color: string, slot?: number):
   return traverse(m.draw(frame, slotBlinkPhase(n)), WALK_SPAN, m.dir);
 }
 
+/** Baby leg cadences, in ms per unit of the leg cycle — one entry per baby.
+ *  The parent's legs ride the 12-frame counter: 3 frames x 120 ms, a 360 ms
+ *  step. Babies are smaller and step quicker, which is how small animals
+ *  actually walk and, less obviously, the only way to desynchronise them.
+ *
+ *  Frame offsets cannot do it, however carefully chosen. The leg cycle
+ *  switches every 3 frames, so it has exactly three residues; the parent
+ *  occupies one, leaving two for the babies. By pigeonhole two must share a
+ *  residue — and two offsets sharing a residue differ by a multiple of 3,
+ *  which pins them to the same switch frame forever: identical pose if the
+ *  multiple is even, exactly mirrored if it is odd. Mirrored-and-locked is
+ *  still locked. The first attempt here was `[1, 2, 4]`, and `4 - 1 = 3` did
+ *  precisely that to the first and third baby.
+ *
+ *  Distinct cadences have no such pigeonhole. Times 3, these give step periods
+ *  of 282 / 249 / 303 / 219 ms against the parent's 360 ms — no two share a
+ *  small common multiple, so they drift continuously instead of locking.
+ *
+ *  The baby count is derived from this array's length rather than declared
+ *  beside it. Two independent numbers here would let a fifth baby reuse a
+ *  cadence, and a reused cadence is not a near-miss — the two run off the same
+ *  `Date.now()` divisor, so they share a leg pose exactly, forever. */
+const BABY_LEG_TICK_MS = [94, 83, 101, 73] as const;
+
 /** How many babies trail the parent while a Task subagent runs. */
-const BABY_COUNT = 3;
+const BABY_COUNT = BABY_LEG_TICK_MS.length;
 /** Baby size relative to the parent. */
 const BABY_SCALE = 0.45;
 /** Clear space between the parent and the first baby, and between babies. */
@@ -246,25 +270,6 @@ const FAMILY_TAILGAP = 55;
  *  put the last baby back in lockstep with the parent — the exact thing the
  *  offsets exist to prevent. */
 const blinkSpread = (i: number): number => ((i + 1) * BLINK_PERIOD_MS) / (BABY_COUNT + 1) + i * 130;
-
-/** Baby leg cadences, in ms per unit of the leg cycle. The parent's legs ride
- *  the 12-frame counter — 3 frames x 120 ms, a 360 ms step. Babies are smaller
- *  and step quicker, which is how small animals actually walk and, less
- *  obviously, the only way to desynchronise three of them.
- *
- *  Frame offsets cannot do it, however carefully chosen. The leg cycle
- *  switches every 3 frames, so it has exactly three residues; the parent
- *  occupies one, leaving two for three babies. By pigeonhole two must share a
- *  residue — and two offsets sharing a residue differ by a multiple of 3,
- *  which pins them to the same switch frame forever: identical pose if the
- *  multiple is even, exactly mirrored if it is odd. Mirrored-and-locked is
- *  still locked. The first attempt here was `[1, 2, 4]`, and `4 - 1 = 3` did
- *  precisely that to the first and third baby.
- *
- *  Distinct cadences have no such pigeonhole. Times 3, these give step periods
- *  of 282 / 249 / 303 ms against the parent's 360 ms — no two share a small
- *  common multiple, so they drift continuously instead of locking. */
-const BABY_LEG_TICK_MS = [94, 83, 101] as const;
 
 /** The slot's mascot walking with a few small copies of itself in tow — the
  *  `subagent` state's answer to `slotCharacterWalk`.
@@ -293,7 +298,7 @@ export function subagentWalk(frame: number, _color: string, slot?: number): stri
     // Wall-clock rather than the shared counter, so each baby's gait runs on
     // its own clock. Monotonic and unbounded, which both channels inside the
     // mascot handle: legs take it mod 6, breathing mod 12.
-    const legFrame = Math.floor(Date.now() / BABY_LEG_TICK_MS[i % BABY_LEG_TICK_MS.length]);
+    const legFrame = Math.floor(Date.now() / BABY_LEG_TICK_MS[i]);
     const body = draw(legFrame, slotBlinkPhase(n) + blinkSpread(i));
     const x = (pivotX - dir * back).toFixed(2);
     family += `\n<g transform="translate(${x} ${pivotY.toFixed(2)}) scale(${BABY_SCALE})">${body}</g>`;
