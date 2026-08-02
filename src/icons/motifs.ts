@@ -503,63 +503,55 @@ ${trunk}
 </g>`;
 }
 
-/** A plump white hen in left-facing profile, styled after a reference photo
- *  (kawaii-style vector illustration: one dominant egg-shaped body, huge
- *  glossy eyes, big round blush, barely-there feet). Adapted rather than
- *  copied outright — the reference is front-facing with heavy black outlines,
- *  which would break two things every other mascot on this deck relies on:
- *  a profile silhouette (so `dir` means something for the walk) and flat
- *  fills with no stroke (so the family reads as one consistent set).
- *
- *  Head and body are ONE continuous taper (no separate head rectangle) —
- *  the previous version's neck line was exactly the seam a single unified
- *  silhouette removes. The face features sit directly on that silhouette's
- *  front-upper curve instead of on their own block. */
+/** A round white hen in left-facing profile. Rebuilt from scratch after two
+ *  earlier attempts both read as ugly: both tried to fake a smooth oval out
+ *  of many stacked rows of slightly different widths, and at this pixel
+ *  budget that reads as a lumpy staircase, not "round" — the opposite of
+ *  the intended effect. Every OTHER mascot in this file that reads as round
+ *  and cute (elephant, dino, the chick) uses one or two flat rectangles for
+ *  its body, not a taper. This hen now does the same: one body block plus
+ *  one smaller head block offset above-and-forward of it, exactly the
+ *  elephant's technique. Facial detail is deliberately sparse — comb, one
+ *  eye, a beak, a small blush — because the earlier attempts' clutter of
+ *  competing small shapes was as much the problem as the lumpy body. */
 function henIdleLook(frame: number, blinkPhaseMs: number): string {
   const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
-  const c = "#fbf8f3";
-  const shade = "#ded5c4";
+  const c = "#ffffff";
+  const shade = "#e2e2e2";
   const comb = "#ff3b30";
   const bill = "#ffb020";
   const foot = "#f0993f";
   const blush = "#ffb0c0";
   const stepA = Math.floor(frame / 3) % 2 === 0;
-  // Feet shrink to near-nothing under the belly, matching the reference —
-  // still a foot-flare (wide toe row under a thin shin reads as a bird), just
-  // barely peeking out rather than a full visible leg.
   const leg = (x: number, planted: boolean) =>
     `<rect x="${x}" y="11" width="1" height="${planted ? 2 : 1}" fill="${foot}"/>
 <rect x="${x - 1}" y="${planted ? 13 : 12}" width="2" height="1" fill="${foot}"/>`;
   const legs = stepA ? leg(5, true) + leg(9, false) : leg(5, false) + leg(9, true);
   const bob = stepA ? "0" : "-0.5";
-  // The wing lifts on the offbeat, same wag trick as the sauropod and
-  // elephant's tail, pushed further here to echo the reference's raised fan.
-  const tailTipY = stepA ? 1 : 2;
-  return `<g transform="translate(38 35) scale(4)">
-<rect x="0" y="15" width="17" height="1" fill="#000" opacity="0.45"/>
+  // Tail lifts on the offbeat, same wag trick as the sauropod and elephant —
+  // one rect, not a base-plus-tip pair, matching the rest of the redesign's
+  // restraint.
+  const tailH = stepA ? 5 : 6;
+  return `<g transform="translate(40 35) scale(4)">
+<rect x="1" y="15" width="14" height="1" fill="#000" opacity="0.45"/>
 ${legs}
 <g transform="translate(0 ${bob})">
-<g transform="translate(7.5 6) scale(1 ${breatheY}) translate(-7.5 -6)">
-<rect x="14" y="2" width="2" height="6" fill="${shade}"/>
-<rect x="15" y="${tailTipY}" width="2" height="3" fill="${c}"/>
-<rect x="5" y="2" width="6" height="1" fill="${c}"/>
-<rect x="3" y="3" width="9" height="1" fill="${c}"/>
-<rect x="1" y="4" width="12" height="1" fill="${c}"/>
-<rect x="1" y="5" width="13" height="3" fill="${c}"/>
-<rect x="2" y="8" width="11" height="1" fill="${c}"/>
-<rect x="3" y="9" width="9" height="1" fill="${c}"/>
-<rect x="4" y="10" width="7" height="1" fill="${c}"/>
+<g transform="translate(7 7) scale(1 ${breatheY}) translate(-7 -7)">
+<rect x="12" y="${11 - tailH}" width="2" height="${tailH}" fill="${shade}"/>
+<rect x="3" y="6" width="10" height="5" fill="${c}"/>
+<rect x="4" y="9" width="7" height="2" fill="${shade}"/>
+<rect x="1" y="2" width="7" height="6" fill="${c}"/>
 <rect x="1" y="6" width="2" height="2" fill="${blush}"/>
 <rect x="0" y="4" width="1" height="2" fill="${bill}"/>
 <rect x="0" y="6" width="1" height="1" fill="${comb}"/>
-<rect x="6" y="0" width="1" height="2" fill="${comb}"/>
-<rect x="7" y="1" width="1" height="1" fill="${comb}"/>
-<rect x="8" y="0" width="1" height="2" fill="${comb}"/>
-<g transform="translate(3 5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-3 -5)">
-<rect x="2" y="4" width="2" height="2" fill="#000"/>
-<rect x="3" y="4" width="1" height="1" fill="#fff"/>
+<rect x="3" y="0" width="1" height="2" fill="${comb}"/>
+<rect x="4" y="1" width="1" height="1" fill="${comb}"/>
+<rect x="5" y="0" width="1" height="2" fill="${comb}"/>
+<g transform="translate(3 4) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-3 -4)">
+<rect x="2" y="3" width="2" height="2" fill="#000"/>
+<rect x="3" y="3" width="1" height="1" fill="#fff"/>
 </g>
 </g>
 </g>
