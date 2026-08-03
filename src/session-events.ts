@@ -49,6 +49,15 @@ export interface DerivedState {
   subagentDepth: number;
   /** Most recent TodoWrite snapshot; empty until the agent calls TodoWrite. */
   todos: TodoStatus[];
+  /** Outstanding background-agent starts (event timestamps, oldest first).
+   *  Deliberately NOT reset at turn boundaries, unlike `subagentDepth`:
+   *  harness-tracked background agents outlive the turn that spawned them,
+   *  and the reset made them invisible the moment the turn ended. Leak
+   *  tolerance comes from the consumer instead — `liveBgAgents` ages every
+   *  entry out after BG_AGENT_TTL_MS, so an unmatched start (they happen:
+   *  observed start=30/stop=26 in real logs) fades instead of stranding a
+   *  badge forever. Capped at BG_AGENT_CAP, newest kept. */
+  bgAgentStartTimes: number[];
   /** Which terminal hosts this session (from the SessionStart hook stamp). */
   terminal: TerminalKind;
   /** Transcript path (from the SessionStart hook stamp); "" when unknown.
@@ -68,7 +77,18 @@ interface ReducerState extends DerivedState {
   inTurn: boolean;
 }
 
-const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "", firstPrompt: "", inTurn: false };
+const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], bgAgentStartTimes: [], terminal: "unknown", transcriptPath: "", firstPrompt: "", inTurn: false };
+
+/** How long an outstanding background-agent start stays visible without its
+ *  SubagentStop. Long enough for real audits, short enough that a leaked
+ *  start is a temporary +1, not a permanent lie. */
+export const BG_AGENT_TTL_MS = 30 * 60_000;
+const BG_AGENT_CAP = 16;
+
+/** The badge count at `now`: outstanding starts younger than the TTL. */
+export function liveBgAgents(starts: readonly number[], now: number): number {
+  return starts.filter((t) => now - t < BG_AGENT_TTL_MS).length;
+}
 
 export function reduceEvents(events: readonly SessionEvent[]): DerivedState {
   let state = ZERO;
@@ -165,10 +185,20 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
       return { ...state, inTurn: false, awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: true, subagentDepth: 0 };
 
     case "SubagentStart":
-      return { ...state, subagentDepth: state.subagentDepth + 1 };
+      return {
+        ...state,
+        subagentDepth: state.subagentDepth + 1,
+        bgAgentStartTimes: [...state.bgAgentStartTimes, ev.ts].slice(-BG_AGENT_CAP),
+      };
 
     case "SubagentStop":
-      return { ...state, subagentDepth: Math.max(0, state.subagentDepth - 1) };
+      return {
+        ...state,
+        subagentDepth: Math.max(0, state.subagentDepth - 1),
+        // FIFO: retire the oldest outstanding start. With unpaired events the
+        // bias favors newer spawns staying visible; ghosts age out via TTL.
+        bgAgentStartTimes: state.bgAgentStartTimes.slice(1),
+      };
 
     default:
       return state;

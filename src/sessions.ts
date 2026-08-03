@@ -93,6 +93,9 @@ export interface SessionInfo {
   subagentActive: boolean;
   /** Snapshot of the last TodoWrite call's statuses; empty if none seen. */
   todos: TodoStatus[];
+  /** Outstanding background-agent start timestamps (cross-turn, TTL-aged by
+   *  the renderer via liveBgAgents) — drives the +N agents badge. */
+  bgAgentStarts: number[];
   origin: SessionOrigin;
   /** Terminal host (from the event-log SessionStart stamp); drives slot-press focus. */
   terminal: TerminalKind;
@@ -167,7 +170,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
         const kind: "interactive" | "bg" = raw.kind === "bg" ? "bg" : "interactive";
 
         let derived: DerivedState = {
-          awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], terminal: "unknown", transcriptPath: "", firstPrompt: "",
+          awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], bgAgentStartTimes: [], terminal: "unknown", transcriptPath: "", firstPrompt: "",
         };
         // Un agent bg tourne en headless et ne nourrit pas le pipeline de hooks :
         // son json (status/waitingFor) est la source de vérité. On saute donc
@@ -227,6 +230,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           errored: derived.errored,
           subagentActive: derived.subagentDepth > 0,
           todos: derived.todos,
+          bgAgentStarts: derived.bgAgentStartTimes,
           origin: src.origin,
           terminal: derived.terminal,
           transcriptPath: derived.transcriptPath,

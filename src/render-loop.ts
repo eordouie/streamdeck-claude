@@ -3,6 +3,7 @@ import { isAnimated, renderIcon, renderKillArming } from "./icons/index.js";
 import type { SlotAction } from "./slot-action.js";
 import { KILL_PRESS_MS, LONG_PRESS_MS } from "./slot-action.js";
 import type { DisplayEntry } from "./state-tracker.js";
+import { liveBgAgents } from "./session-events.js";
 import { canonicalTabTitle } from "./tab-title.js";
 
 /**
@@ -45,6 +46,9 @@ export async function renderAll(
           attention: entry.attention,
           awaitingReply: entry.awaitingReply,
           overflow: i === ordered.length - 1 ? hidden : 0,
+          // Computed here, with a live clock, so TTL expiry takes effect on
+          // the next tick even when the event log hasn't changed.
+          bgAgents: state === "finished" ? 0 : liveBgAgents(entry.session.bgAgentStarts, Date.now()),
         })
       : renderIcon({ state: "empty", slot: slotIndex, label: "", frame: 0 });
     const dataUrl = "data:image/svg+xml;base64," + Buffer.from(svg, "utf8").toString("base64");

@@ -42,6 +42,10 @@ export interface IconOptions {
   /** Live sessions that have no key to appear on. Set on the last slot only —
    *  it is one global fact, and repeating it across five keys is noise. */
   overflow?: number;
+  /** Harness background agents currently attributed to this session (may be
+   *  running while the session itself is idle between turns). Renders a quiet
+   *  bottom-right chip — ambient info, never a flash. */
+  bgAgents?: number;
 }
 
 // Left-edge progress column geometry. The column sits at x=2..7, outside the
@@ -92,11 +96,23 @@ function renderBgBadge(accent: string): string {
  *  top-right where the owed-reply dot lives. Without this a sixth session is
  *  simply absent from the deck, which is indistinguishable from not running —
  *  the same silent-omission the provider contract forbids elsewhere. */
+/** Bottom-right chip for cross-turn background agents. Deliberately quiet
+ *  (fixed neutral color, no flash): "N agents are grinding for this session"
+ *  is ambient status, and it must read the same on a busy tile and an idle
+ *  one — that idle-but-agents-running state is the whole reason it exists. */
+function renderBgAgentsBadge(count: number): string {
+  const n = Math.min(count, 9);
+  // Plain "+N": glyphs like a gear are font-roulette in the SD app's SVG
+  // rasterizer. Disambiguation from the overflow "+N" is positional (bottom-
+  // right vs top-left) and chromatic (fixed slate vs state accent).
+  return `<text x="138" y="138" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" font-weight="700" fill="#94a3b8" opacity="0.9" text-anchor="end">+${n}</text>`;
+}
+
 function renderOverflowBadge(count: number, accent: string, shifted: boolean): string {
   return `<text x="${shifted ? 34 : 16}" y="22" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" font-weight="700" fill="${accent}" opacity="0.8" text-anchor="start">+${count}</text>`;
 }
 
-export function renderIcon({ state, slot, label, frame = 0, now, todos, attention, awaitingReply, overflow }: IconOptions): string {
+export function renderIcon({ state, slot, label, frame = 0, now, todos, attention, awaitingReply, overflow, bgAgents }: IconOptions): string {
   const t = now ?? Date.now();
   const { bg, accent, label: labelColor } = STATES[state].palette;
   const flash = attention === true;
@@ -144,6 +160,7 @@ export function renderIcon({ state, slot, label, frame = 0, now, todos, attentio
   const bgBadge = isBgState(state) ? renderBgBadge(accent) : "";
   const overflowBadge =
     overflow !== undefined && overflow > 0 ? renderOverflowBadge(overflow, accent, isBgState(state)) : "";
+  const bgAgentsBadge = bgAgents !== undefined && bgAgents > 0 && !isEmpty ? renderBgAgentsBadge(bgAgents) : "";
 
   // Shared triangle wave: the state's own urgent pulse (pulseBg) and the
   // unacknowledged-attention flash both ride it, PULSE_BG_SPEED× faster than
@@ -191,6 +208,7 @@ export function renderIcon({ state, slot, label, frame = 0, now, todos, attentio
 ${pulseOverlay}
 ${bgBadge}
 ${overflowBadge}
+${bgAgentsBadge}
 ${owedDot}
 ${topLine}
 <g transform="translate(0,${MOTIF_DY})">${STATES[state].motif(frame, accent, slot)}</g>

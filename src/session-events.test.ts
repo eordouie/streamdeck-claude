@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseEventLog, reduceEvents } from "./session-events.js";
+import { parseEventLog, reduceEvents, liveBgAgents, BG_AGENT_TTL_MS } from "./session-events.js";
 
 test("SessionStart term is reduced into DerivedState.terminal", () => {
   const log = JSON.stringify({ ts: 1, event: "SessionStart", term: "vscode" });
@@ -137,4 +137,44 @@ test("machine-injected prompts never become the naming context", () => {
     ev("UserPromptSubmit", { prompt: "fix the slack key on my deck" }),
   ]);
   assert.equal(d.firstPrompt, "fix the slack key on my deck");
+});
+
+// --- background-agent badge counter (cross-turn, leak-tolerant) -------------
+
+test("background-agent starts survive turn boundaries, unlike subagentDepth", () => {
+  const d = reduce([
+    ev("UserPromptSubmit", { prompt: "run the release analysis now" }),
+    JSON.stringify({ ts: 1000, event: "SubagentStart" }),
+    JSON.stringify({ ts: 2000, event: "SubagentStart" }),
+    ev("Stop"),
+    ev("UserPromptSubmit", { prompt: "different topic entirely here" }),
+  ]);
+  assert.equal(d.subagentDepth, 0, "turn-scoped depth resets at boundaries");
+  assert.deepEqual(d.bgAgentStartTimes, [1000, 2000], "cross-turn starts persist");
+});
+
+test("SubagentStop retires the oldest outstanding start, and floors at empty", () => {
+  const d = reduce([
+    JSON.stringify({ ts: 1000, event: "SubagentStart" }),
+    JSON.stringify({ ts: 2000, event: "SubagentStart" }),
+    JSON.stringify({ ts: 3000, event: "SubagentStop" }),
+  ]);
+  assert.deepEqual(d.bgAgentStartTimes, [2000]);
+  const empty = reduce([JSON.stringify({ ts: 1000, event: "SubagentStop" })]);
+  assert.deepEqual(empty.bgAgentStartTimes, [], "a stop with nothing outstanding is a no-op");
+});
+
+test("outstanding starts are capped, keeping the newest", () => {
+  const lines = Array.from({ length: 20 }, (_, i) => JSON.stringify({ ts: (i + 1) * 100, event: "SubagentStart" }));
+  const d = reduce(lines);
+  assert.equal(d.bgAgentStartTimes.length, 16);
+  assert.equal(d.bgAgentStartTimes[0], 500, "oldest four dropped");
+  assert.equal(d.bgAgentStartTimes[15], 2000);
+});
+
+test("liveBgAgents ages out unmatched starts by TTL — a leaked start cannot strand the badge", () => {
+  const now = 10_000_000;
+  const starts = [now - BG_AGENT_TTL_MS - 1, now - 60_000, now - 1000];
+  assert.equal(liveBgAgents(starts, now), 2);
+  assert.equal(liveBgAgents(starts, now + BG_AGENT_TTL_MS), 0, "everything eventually expires");
 });
