@@ -1,5 +1,5 @@
 import streamDeck, { LogLevel } from "@elgato/streamdeck";
-import { ANIMATION_FRAMES } from "./icons/index.js";
+import { ANIMATION_FRAMES, isAnimated } from "./icons/index.js";
 import { SlotAction } from "./slot-action.js";
 import { SetupAction } from "./setup-action.js";
 import { CommandAction } from "./command-action.js";
@@ -86,8 +86,12 @@ setInterval(async () => {
   animateRunning = true;
   frame = (frame + 1) % ANIMATION_FRAMES;
   // Skip render if nothing on screen needs to change frame-to-frame
-  // (no animated motif AND no marquee-overflowing label).
-  if (!tracker.needsAnimation() && !slotAction.anyKillArming()) {
+  // (no animated motif AND no marquee-overflowing label). Visible empty
+  // slots count as animated when the empty state is: the resident mascot's
+  // blink rides wall-clock, and the tracker only knows about live entries.
+  const emptiesAnimate =
+    isAnimated("empty") && tracker.getEntries().length < slotAction.orderedActions().length;
+  if (!tracker.needsAnimation() && !slotAction.anyKillArming() && !emptiesAnimate) {
     animateRunning = false;
     return;
   }

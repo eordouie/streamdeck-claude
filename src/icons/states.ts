@@ -1,6 +1,6 @@
 import {
   awaitingPulse,
-  emptyDashed,
+  emptyMascot,
   errorBolt,
   finishedCheck,
   permissionPulse,
@@ -51,7 +51,10 @@ export const STATES = {
   bg_awaiting_permission: { palette: { bg: "#12132e", accent: "#a5b4fc", label: "#ddd6fe" }, animated: true,  pulseBg: true,  motif: permissionPulse },
   bg_awaiting:            { palette: { bg: "#12132e", accent: "#a5b4fc", label: "#ddd6fe" }, animated: true,  pulseBg: true,  motif: awaitingPulse },
   bg_idle:                { palette: { bg: "#10131a", accent: "#6b7fd0", label: "#c7d2fe" }, animated: true,  pulseBg: false, motif: slotCharacterIdle },
-  empty:         { palette: { bg: "#0a0b0e", accent: "#374151", label: "#4b5563" }, animated: false, pulseBg: false, motif: emptyDashed },
+  // animated: the resident mascot blinks on wall-clock even at rest. The
+  // animation gate in plugin.ts only engages when an empty slot is actually
+  // visible (fewer sessions than keys).
+  empty:         { palette: { bg: "#0a0b0e", accent: "#374151", label: "#4b5563" }, animated: true,  pulseBg: false, motif: emptyMascot },
 } satisfies Record<string, StateDef>;
 
 export type SessionState = keyof typeof STATES;

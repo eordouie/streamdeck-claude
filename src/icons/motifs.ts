@@ -720,9 +720,17 @@ export function finishedCheck(_frame: number, color: string): string {
 <path d="M58 61 L68 71 L88 51" fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
-export function emptyDashed(_frame: number, color: string): string {
-  return `<rect x="22" y="34" width="100" height="56" rx="9" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="4 4"/>
-<path d="M72 46 L72 78 M56 62 L88 62" stroke="${color}" stroke-width="4.5" stroke-linecap="round"/>`;
+/** The slot's own mascot at rest on an unoccupied key: static stance, dimmed
+ *  well below the live states, but still blinking — the character is home,
+ *  nobody is working. Replaces the dashed box so the deck keeps its eight
+ *  residents even with zero sessions (a fully dashed deck read as "the
+ *  mascots are gone"). The launch affordance stays the "free slot" top line
+ *  render.ts already draws for empty tiles. Legs pin to frame 0 (no walk);
+ *  only the wall-clock blink changes between renders, so the animation
+ *  tick's per-slot dedup pushes ~2 frames per blink and skips the rest. */
+export function emptyMascot(_frame: number, _color: string, slot?: number): string {
+  const n = Math.max(1, slot ?? 1);
+  return `<g opacity="0.38">${dropped(mascotAt(n).draw(0, slotBlinkPhase(n)))}</g>`;
 }
 
 export function errorBolt(frame: number, color: string): string {
