@@ -56,3 +56,85 @@ test("firstPrompt captures the first substantial prompt and stays fixed", () => 
     .join("\n");
   assert.equal(reduceEvents(parseEventLog(log)).firstPrompt, "brutally audit the mirror optimizer sweep");
 });
+
+// --- 2026-08-03 review fixes ------------------------------------------------
+
+const ev = (event: string, extra: Record<string, unknown> = {}) => JSON.stringify({ ts: 1, event, ...extra });
+const reduce = (lines: string[]) => reduceEvents(parseEventLog(lines.join("\n")));
+
+test("a rejected plan (PostToolUseFailure) clears awaitingPlan like an approved one", () => {
+  const d = reduce([
+    ev("UserPromptSubmit", { prompt: "please build the thing properly" }),
+    ev("PreToolUse", { tool: "ExitPlanMode" }),
+    ev("PostToolUseFailure", { tool: "ExitPlanMode" }),
+  ]);
+  assert.equal(d.awaitingPlan, false);
+});
+
+test("an ESC'd question (PostToolUseFailure) clears awaitingQuestion", () => {
+  const d = reduce([
+    ev("UserPromptSubmit", { prompt: "pick one of these options now" }),
+    ev("PreToolUse", { tool: "AskUserQuestion" }),
+    ev("PostToolUseFailure", { tool: "AskUserQuestion" }),
+  ]);
+  assert.equal(d.awaitingQuestion, false);
+});
+
+test("PermissionDenied clears the permission prompt — no is an answer", () => {
+  const d = reduce([
+    ev("UserPromptSubmit", { prompt: "run the migration script please" }),
+    ev("PreToolUse", { tool: "Bash" }),
+    ev("Notification", { notifType: "permission_prompt" }),
+    ev("PermissionDenied", { tool: "Bash" }),
+  ]);
+  assert.equal(d.awaitingPermission, false);
+});
+
+test("resolved/informational notifications never flip the tile to needs-you", () => {
+  for (const notifType of ["idle_prompt", "auth_success", "elicitation_complete", "elicitation_response", "agent_completed", "some_future_type"]) {
+    const d = reduce([ev("UserPromptSubmit", { prompt: "keep working on the report" }), ev("Notification", { notifType })]);
+    assert.equal(d.awaiting, false, `notifType=${notifType} must not set awaiting`);
+    assert.equal(d.awaitingPermission, false);
+  }
+});
+
+test("genuinely-needs-you notifications still register", () => {
+  const perm = reduce([ev("UserPromptSubmit", { prompt: "do the risky thing now" }), ev("Notification", { notifType: "permission_prompt" })]);
+  assert.equal(perm.awaitingPermission, true);
+  for (const notifType of ["elicitation_dialog", "agent_needs_input"]) {
+    const d = reduce([ev("UserPromptSubmit", { prompt: "do the risky thing now" }), ev("Notification", { notifType })]);
+    assert.equal(d.awaiting, true, `notifType=${notifType} must set awaiting`);
+  }
+});
+
+test("subagent tool traffic does not clear a pending permission prompt", () => {
+  const d = reduce([
+    ev("UserPromptSubmit", { prompt: "audit the whole codebase please" }),
+    ev("SubagentStart"),
+    ev("PreToolUse", { tool: "Bash" }),
+    ev("Notification", { notifType: "permission_prompt" }),
+    ev("PreToolUse", { tool: "WebSearch" }), // a subagent's tool call, same log
+    ev("PostToolUse", { tool: "WebSearch" }),
+  ]);
+  assert.equal(d.awaitingPermission, true, "the padlock must survive subagent tool events");
+});
+
+test("main-thread tool traffic (no subagents in flight) still clears the prompt", () => {
+  const d = reduce([
+    ev("UserPromptSubmit", { prompt: "audit the whole codebase please" }),
+    ev("PreToolUse", { tool: "Bash" }),
+    ev("Notification", { notifType: "permission_prompt" }),
+    ev("PreToolUse", { tool: "Read" }), // resumed activity = the user answered
+  ]);
+  assert.equal(d.awaitingPermission, false);
+});
+
+test("machine-injected prompts never become the naming context", () => {
+  const d = reduce([
+    ev("SessionStart", { term: "ghostty" }),
+    ev("UserPromptSubmit", { prompt: "[SYSTEM NOTIFICATION - NOT USER INPUT] task finished etc" }),
+    ev("UserPromptSubmit", { prompt: "<task-notification> something completed </task-notification>" }),
+    ev("UserPromptSubmit", { prompt: "fix the slack key on my deck" }),
+  ]);
+  assert.equal(d.firstPrompt, "fix the slack key on my deck");
+});

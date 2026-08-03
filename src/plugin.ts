@@ -26,8 +26,10 @@ async function runSlowTick(): Promise<void> {
   try {
     const entries = await tracker.tick(slotAction.orderedActions().length);
     await renderAll(slotAction, entries, frame);
-    // Own each tab's title so slot-press focus can match it exactly.
-    await ensureTabTitles(entries.map((e) => e.session));
+    // Own each tab's title so slot-press focus can match it exactly. Live
+    // sessions only: the finished-TTL carry-overs are dead processes whose
+    // pids would just be ps-probed (or, recycled, mis-stamped) for 3 s.
+    await ensureTabTitles(entries.filter((e) => e.state !== "finished").map((e) => e.session));
   } catch (err) {
     streamDeck.logger.error("tick failed", err);
   } finally {

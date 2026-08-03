@@ -68,22 +68,33 @@ export async function renderAll(
       const killSvg = renderKillArming({ slot: slotIndex, label, progress });
       const killUrl = "data:image/svg+xml;base64," + Buffer.from(killSvg, "utf8").toString("base64");
       if (slotState.lastSvg !== killUrl) {
-        slotState.lastSvg = killUrl;
+        // lastSvg only records DELIVERED frames: recording before the send
+        // resolves let a failed setImage poison the dedup — the key kept the
+        // old image while every subsequent identical frame was skipped.
         pending.push(
-          action.setImage(killUrl).catch((err) => {
-            streamDeck.logger.error(`setImage(kill) failed for slot ${slotIndex}`, err);
-          }),
+          action.setImage(killUrl).then(
+            () => {
+              slotState.lastSvg = killUrl;
+            },
+            (err) => {
+              streamDeck.logger.error(`setImage(kill) failed for slot ${slotIndex}`, err);
+            },
+          ),
         );
       }
       continue;
     }
 
     if (slotState.lastSvg === dataUrl) continue;
-    slotState.lastSvg = dataUrl;
     pending.push(
-      action.setImage(dataUrl).catch((err) => {
-        streamDeck.logger.error(`setImage failed for slot ${slotIndex}`, err);
-      }),
+      action.setImage(dataUrl).then(
+        () => {
+          slotState.lastSvg = dataUrl;
+        },
+        (err) => {
+          streamDeck.logger.error(`setImage failed for slot ${slotIndex}`, err);
+        },
+      ),
     );
   }
   await Promise.all(pending);

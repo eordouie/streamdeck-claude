@@ -66,8 +66,9 @@ export function createStateTracker() {
   const prevStates = new Map<string, SessionState>();
   /** Sessions that owe the user a reply, keyed by sessionId. `snoozedAt` is
    *  set by a slot press: the key stops flashing but keeps a dot, and
-   *  re-arms once RENAG_AFTER_MS has passed. */
-  const owed = new Map<string, { snoozedAt?: number; nags: number; muted?: boolean }>();
+   *  re-arms once RENAG_AFTER_MS has passed. `armedAt` anchors the
+   *  time-based mute below. */
+  const owed = new Map<string, { snoozedAt?: number; nags: number; muted?: boolean; armedAt: number }>();
 
   let lastDiag = "";
   function maybeLog(msg: string): void {
@@ -109,7 +110,7 @@ export function createStateTracker() {
       const sid = e.session.sessionId;
       const prev = prevStates.get(sid);
       if (prev !== undefined && BUSY_STATES.has(prev) && ATTENTION_STATES.has(e.state)) {
-        if (!owed.has(sid)) owed.set(sid, { nags: 1 });
+        if (!owed.has(sid)) owed.set(sid, { nags: 1, armedAt: now });
       } else if (BUSY_STATES.has(e.state)) {
         owed.delete(sid);
       }
@@ -128,6 +129,11 @@ export function createStateTracker() {
         entry.nags += 1;
         if (entry.nags > MAX_NAGS) entry.muted = true;
       }
+      // Time-based mute, independent of presses: the invariant is "a session
+      // that needs no reply must never strobe forever", but the press-driven
+      // counter above only advances if someone acknowledges — a key nobody
+      // pressed (user away from desk) used to flash indefinitely.
+      if (Math.floor((now - entry.armedAt) / RENAG_AFTER_MS) >= MAX_NAGS) entry.muted = true;
       e.attention = entry.muted !== true && entry.snoozedAt === undefined;
       e.awaitingReply = true;
     }
@@ -156,7 +162,15 @@ export function createStateTracker() {
     // unchecked they pile up (months of <pid>.json) and every one gets re-stat'd
     // each tick over the slow UNC. Snapshots for the finished-TTL carry-over are
     // already held in recentlyFinished, so removing the file here is safe.
-    const pruned = await pruneDeadSessions(sessions, live, Date.now());
+    //
+    // ONLY on a trustworthy liveness answer: an errored or cache-degraded
+    // probe collapses `live` toward empty, and pruning against that verdict
+    // once mass-deleted every idle session's files during a >10 s spawn
+    // outage (their mtimes are hours old, so the grace window is no shield).
+    let pruned = 0;
+    if (!livenessResult.error && !livenessResult.fromCache) {
+      pruned = await pruneDeadSessions(sessions, live, Date.now());
+    }
     if (pruned > 0) streamDeck.logger.info(`pruned ${pruned} dead session file(s)`);
 
     cachedEntries = [...liveEntries, ...recentlyFinished.values()].sort(

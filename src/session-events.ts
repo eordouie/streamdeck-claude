@@ -13,9 +13,13 @@ export interface SessionEvent {
   ts: number;
   event: string;
   tool?: string;
-  /** CC's `notification_type` on Notification events: `permission_prompt`,
-   *  `idle_prompt`, `elicitation_dialog`, `auth_success`. Older logs from
-   *  before the hook captured this field will be `undefined`. */
+  /** CC's `notification_type` on Notification events. The enum GROWS across
+   *  CC versions (seen live on 2.1.220: `permission_prompt`, `idle_prompt`,
+   *  `auth_success`, `elicitation_dialog`, `elicitation_complete`,
+   *  `elicitation_response`, `agent_needs_input`, `agent_completed`) — which
+   *  is why the reducer whitelists the needs-you types instead of
+   *  catch-all-ing the rest into "awaiting". Older logs from before the hook
+   *  captured this field will be `undefined`. */
   notifType?: string;
   /** Present only for PostToolUse[TodoWrite] — snapshot of the new list's statuses. */
   todos?: TodoStatus[];
@@ -89,8 +93,12 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
       // turn boundary and stranding the session on the "subagent" icon.
       const next = { ...state, inTurn: true, awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0 };
       // Capture the FIRST substantial prompt only — trivial openers
-      // ("continue", "hi") don't count as naming context.
-      if (!state.firstPrompt && ev.prompt !== undefined && ev.prompt.trim().split(/\s+/).length >= 3) {
+      // ("continue", "hi") don't count as naming context, and neither do
+      // machine-injected turns (background-task notifications arrive as
+      // UserPromptSubmit with an XML body): a session named after harness
+      // plumbing instead of the user's actual request is worse than unnamed.
+      const machine = /^\s*(\[SYSTEM NOTIFICATION|<task-notification)/.test(ev.prompt ?? "");
+      if (!state.firstPrompt && !machine && ev.prompt !== undefined && ev.prompt.trim().split(/\s+/).length >= 3) {
         next.firstPrompt = ev.prompt.trim();
       }
       return next;
@@ -100,35 +108,53 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
       // Only an in-turn Notification is a real prompt to the user. After Stop,
       // CC keeps firing Notification every ~60 s as an idle reminder — those
       // would falsely flip the icon to awaiting while the user is afk.
-      // Split permission_prompt (CC asking to use a tool — gets its own padlock
-      // icon) from anything else in-turn (elicitation_dialog / older logs with
-      // no notifType — generic "needs input" awaiting).
+      //
+      // WHITELIST, not catch-all: the notifType enum grows across CC versions
+      // and includes RESOLUTION events (elicitation_complete, agent_completed,
+      // auth_success). The old "anything else means needs-input" turned each
+      // of those into a fresh strobe for a thing that had just finished.
+      // Unknown types are ignored — erring quiet beats erring needy, and the
+      // prompts that matter have their own named types.
       if (!state.inTurn) return state;
-      return ev.notifType === "permission_prompt"
-        ? { ...state, awaitingPermission: true }
-        : { ...state, awaiting: true };
+      if (ev.notifType === "permission_prompt") return { ...state, awaitingPermission: true };
+      if (ev.notifType === "elicitation_dialog" || ev.notifType === "agent_needs_input") {
+        return { ...state, awaiting: true };
+      }
+      return state;
 
     case "PreToolUse": {
-      // Any tool-lifecycle event mid-turn is proof the user resolved a pending
-      // Notification (permission_prompt / elicitation): CC never emits tool
-      // events while genuinely blocked on the user, so resumed tool activity
-      // means it got its answer. Clear those flags here — they have no paired
-      // "resolved" event of their own (unlike ExitPlanMode/AskUserQuestion).
+      // Tool activity is proof the user resolved a pending Notification ONLY
+      // when no subagents are in flight: subagent tool calls hook-fire into
+      // this same session log (verified live — WebSearch/Bash events inside
+      // SubagentStart/Stop windows), so with depth > 0 a tool event says
+      // nothing about the main thread, which can still be blocked on a real
+      // padlock. The cost of the gate is the benign direction: a prompt
+      // GRANTED mid-subagent-run keeps its padlock until the turn's flags
+      // next reset, instead of a real prompt being silently hidden.
       // Order is safe: the PreToolUse that *triggers* a permission_prompt fires
       // BEFORE its Notification, so this never clears the prompt it raises.
-      const next = { ...state, awaiting: false, awaitingPermission: false };
+      const next = state.subagentDepth === 0 ? { ...state, awaiting: false, awaitingPermission: false } : { ...state };
       if (ev.tool === "ExitPlanMode") return { ...next, awaitingPlan: true };
       if (ev.tool === "AskUserQuestion") return { ...next, awaitingQuestion: true };
       return next;
     }
 
-    case "PostToolUse": {
-      const next = { ...state, awaiting: false, awaitingPermission: false };
+    // PostToolUseFailure is the DENIAL path of the same lifecycle: a rejected
+    // plan or an ESC'd question fires it instead of PostToolUse, and the
+    // pre-set flag must clear on both or the tile shows "awaiting plan
+    // approval" for the rest of a turn in which nothing is awaited.
+    case "PostToolUse":
+    case "PostToolUseFailure": {
+      const next = state.subagentDepth === 0 ? { ...state, awaiting: false, awaitingPermission: false } : { ...state };
       if (ev.tool === "ExitPlanMode") return { ...next, awaitingPlan: false };
       if (ev.tool === "AskUserQuestion") return { ...next, awaitingQuestion: false };
-      if (ev.tool === "TodoWrite" && ev.todos) return { ...next, todos: ev.todos };
+      if (ev.event === "PostToolUse" && ev.tool === "TodoWrite" && ev.todos) return { ...next, todos: ev.todos };
       return next;
     }
+
+    case "PermissionDenied":
+      // "No" is an answer: the prompt is gone, nothing is awaited anymore.
+      return { ...state, awaiting: false, awaitingPermission: false };
 
     case "Stop":
       // A subagent cannot outlive the turn that spawned it, so depth is 0 once

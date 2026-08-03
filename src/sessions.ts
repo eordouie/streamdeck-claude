@@ -1,4 +1,4 @@
-import { readdir, readFile, stat, unlink } from "node:fs/promises";
+import { readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { platform } from "node:os";
 import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
@@ -320,24 +320,76 @@ export async function pruneDeadSessions(
         } catch {
           /* ENOENT or already gone — fine */
         }
+        // The one-time deck-name sidecar dies with its session too — it was
+        // the one file nothing ever deleted when SessionEnd didn't fire.
+        try {
+          await unlink(join(src.path, `${s.sessionId}.deckname`));
+        } catch {
+          /* ENOENT — fine */
+        }
         jsonCache.delete(jsonPath);
         eventLogCache.delete(eventsPath);
       }),
   );
+
+  // Orphan sweep: sidecars whose sid has NO session file at all. Two real
+  // producers: CC rotating a process's sessionId on /clear (the old sid's
+  // events/deckname are never referenced again — sids are UUIDs and never
+  // reused, despite what an older comment here claimed), and SessionEnd not
+  // firing (crash, SIGKILL, bg agents). Grace-gated like the main prune.
+  const sids = new Set(sessions.map((s) => s.sessionId));
+  await Promise.all(
+    SESSION_SOURCES.map(async (src) => {
+      let entries: string[];
+      try {
+        entries = await readdir(src.path);
+      } catch {
+        return;
+      }
+      await Promise.all(
+        entries
+          .map((f) => f.match(/^(.+?)\.(events\.ndjson|deckname)$/))
+          .filter((m): m is RegExpMatchArray => m !== null && !sids.has(m[1]))
+          .map(async (m) => {
+            const p = join(src.path, m[0]);
+            try {
+              const st = await stat(p);
+              if (now - st.mtimeMs < PRUNE_GRACE_MS) return;
+              await unlink(p);
+              eventLogCache.delete(p);
+              pruned++;
+            } catch {
+              /* raced or unreadable — retry next tick */
+            }
+          }),
+      );
+    }),
+  );
   return pruned;
 }
 
-/** Unlinks one `<sid>.events.ndjson` from the source dir matching `origin`.
+/** Resets one `<sid>.events.ndjson` from the source dir matching `origin`.
  *  Idempotent (ENOENT counts as success) so a long-press reset on a slot whose
- *  agent hasn't emitted anything yet still feels like it "worked". */
+ *  agent hasn't emitted anything yet still feels like it "worked".
+ *
+ *  "Reset", not "unlink": the log's SessionStart line carries the terminal
+ *  kind and transcript path, stamped once per session — a full wipe used to
+ *  demote the session to terminal "unknown" for the rest of its life, which
+ *  downgraded slot-press focus to the guessing chain (and could raise the
+ *  wrong app). Keeping just that line resets the derived state without
+ *  amputating the session's identity. */
 export async function wipeSessionEventLog(
   sessionId: string,
   origin: SessionOrigin,
 ): Promise<{ wiped: boolean; error?: string }> {
   const src = SESSION_SOURCES.find((s) => s.origin === origin);
   if (!src) return { wiped: false, error: `no source for origin=${origin}` };
+  const path = join(src.path, `${sessionId}.events.ndjson`);
   try {
-    await unlink(join(src.path, `${sessionId}.events.ndjson`));
+    const first = (await readFile(path, "utf8")).split("\n", 1)[0] ?? "";
+    const keep = first.includes('"event":"SessionStart"') ? `${first}\n` : "";
+    await writeFile(path, keep);
+    eventLogCache.delete(path);
     return { wiped: true };
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return { wiped: true };
@@ -381,20 +433,26 @@ export async function wipeAllEventLogs(): Promise<{ wiped: number; errors: strin
  *  awaiting_question > awaiting > subagent > working > idle. Plan approval ranks
  *  first among "needs you" states because users can sit on it longest; the more
  *  specific flags (permission, question) win over the generic catch-all so the
- *  distinct icon shows up. All awaiting* flags win over rawStatus="busy" since
- *  CC keeps the session marked busy while waiting — the event log is the source
- *  of truth for "needs input." Spurious idle-reminder Notifications fired after
- *  Stop are already filtered upstream in reduceEvents via its inTurn guard. */
+ *  distinct icon shows up.
+ *
+ *  The awaiting* flags outrank rawStatus only WHILE CC says "busy": CC keeps a
+ *  session busy while it waits on the user, so busy+flag is a live prompt. An
+ *  INTERRUPT, though, emits no hook event at all — the flags stay set in the
+ *  log while pid.json flips idle. Honoring them there froze tiles on prompts
+ *  that no longer existed and re-nagged them every RENAG window until the next
+ *  prompt. rawStatus is CC's own bookkeeping and survives what the event log
+ *  cannot see, so idle always reads as idle. */
 export function deriveState(s: SessionInfo, alive: boolean): SessionState {
   if (!alive) return "finished";
   if (s.kind === "bg") return deriveBgState(s);
   if (s.errored) return "error";
-  if (s.awaitingPlan) return "awaiting_plan";
-  if (s.awaitingPermission) return "awaiting_permission";
-  if (s.awaitingQuestion) return "awaiting_question";
-  if (s.awaiting) return "awaiting";
-  if (s.rawStatus === "busy" && s.subagentActive) return "subagent";
-  if (s.rawStatus === "busy") return "working";
+  if (s.rawStatus === "busy") {
+    if (s.awaitingPlan) return "awaiting_plan";
+    if (s.awaitingPermission) return "awaiting_permission";
+    if (s.awaitingQuestion) return "awaiting_question";
+    if (s.awaiting) return "awaiting";
+    return s.subagentActive ? "subagent" : "working";
+  }
   return "idle";
 }
 

@@ -21,6 +21,18 @@ export async function killSession(pid: number, origin: SessionOrigin): Promise<v
     await killWindows(pid, origin);
     return;
   }
+  // Identity check before signaling: a <pid>.json can outlive its process
+  // (CC died while the SD app was off), and after a reboot the pid may have
+  // been recycled by an unrelated process. Killing must only ever hit a
+  // process that IS a claude — verified live: CC's comm is exactly "claude".
+  const probe = await spawnCapture("/bin/ps", ["-p", String(pid), "-o", "comm="], { timeoutMs: 2000 });
+  const comm = probe.stdout.trim().split("/").pop() ?? "";
+  if (probe.err || probe.code !== 0 || comm !== "claude") {
+    streamDeck.logger.warn(
+      `refusing to kill pid=${pid}: comm=${JSON.stringify(comm)} is not a claude process (recycled pid?)`,
+    );
+    return;
+  }
   killNative(pid);
 }
 

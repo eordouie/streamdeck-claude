@@ -38,7 +38,17 @@ fi
 
 # SessionStart: truncate before appending so the file always begins with the
 # matching SessionStart entry — bounds long-lived sessions from growing forever.
+# EXCEPT on compaction: CC fires SessionStart with source=compact mid-session
+# (and possibly mid-turn). Truncating there wipes the reducer's inTurn state,
+# after which every in-turn Notification — permission prompts included — is
+# discarded for the rest of the turn. A compact changes nothing this log
+# models, so skip the event entirely and keep state continuity.
 if [ "$EVENT" = "SessionStart" ]; then
+  SOURCE="$(printf '%s' "$INPUT" | jq -r '.source // empty' 2>/dev/null || true)"
+  if [ "$SOURCE" = "compact" ]; then
+    echo '{}'
+    exit 0
+  fi
   : > "$TARGET"
 fi
 
@@ -78,7 +88,10 @@ fi
 # corrupt the line. Atomic single-write append (line is well under PIPE_BUF).
 # Perl (rather than `date +%s%3N`) because BSD date on macOS doesn't grok %N
 # and emits a literal "3N" suffix — perl is present on both macOS and Ubuntu.
-TS_MS="$(perl -MTime::HiRes -e 'printf "%d", Time::HiRes::time()*1000')"
+# The date fallback (second precision) exists because this line runs under
+# set -e: a missing/broken perl used to abort the script here, silently
+# losing the event with no error anywhere.
+TS_MS="$(perl -MTime::HiRes -e 'printf "%d", Time::HiRes::time()*1000' 2>/dev/null || echo "$(($(date +%s) * 1000))")"
 
 # For TodoWrite we also snapshot the list's statuses so the plugin can draw a
 # progress column. Project tool_input.todos[*].status into a JSON array; on
@@ -89,6 +102,10 @@ if [ "$TOOL_NAME" = "TodoWrite" ]; then
   [ -z "$TODOS_JSON" ] && TODOS_JSON='null'
 fi
 
+# The printf fallback keeps the EVENT itself alive if jq dies mid-run (jq
+# gone from PATH, OOM): tool/notif detail is lost but the reducer's turn
+# bookkeeping survives — a silently dropped Stop or UserPromptSubmit is a
+# stuck tile. $EVENT is jq-extracted upstream, so it is a plain identifier.
 jq -nc \
   --argjson ts "$TS_MS" \
   --arg event "$EVENT" \
@@ -105,6 +122,8 @@ jq -nc \
    | (if $transcript != ""   then . + {transcript: $transcript} else . end)
    | (if $prompt     != ""   then . + {prompt:     $prompt}     else . end)
    | (if $todos      != null then . + {todos:      $todos}      else . end)' \
-  >> "$TARGET"
+  >> "$TARGET" \
+  || printf '{"ts":%d,"event":"%s"}\n' "$TS_MS" "$EVENT" >> "$TARGET" \
+  || true
 
 echo '{}'

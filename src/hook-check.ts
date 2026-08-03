@@ -29,6 +29,8 @@ export const REQUIRED_HOOK_EVENTS = [
   "Notification",
   "PreToolUse",
   "PostToolUse",
+  "PostToolUseFailure",
+  "PermissionDenied",
   "Stop",
   "StopFailure",
   "UserPromptSubmit",
@@ -44,9 +46,10 @@ export const REQUIRED_HOOK_EVENTS = [
 interface SettingsTarget {
   origin: string;
   /** Candidate settings files, merged: registered in ANY of them counts.
-   *  (User-level settings.local.json is NOT a scope Claude Code reads; it
-   *  stays in the candidate list only as a tolerance for configs that
-   *  predate that discovery — a registration there alone will not fire.) */
+   *  User-level settings.local.json is deliberately NOT a candidate — it is
+   *  not a scope Claude Code reads for hooks, so a registration found only
+   *  there would pass this check while never firing: a green light on a dead
+   *  pipeline, which is exactly the failure this checker exists to catch. */
   paths: string[];
   scriptRe: RegExp;
 }
@@ -62,7 +65,7 @@ const SETTINGS_TARGETS: SettingsTarget[] = platform() === "win32"
       { origin: "windows", paths: [WIN_SETTINGS_FILE], scriptRe: WINDOWS_HOOK_RE },
     ]
   : [
-      { origin: "local", paths: [WSL_SETTINGS_LOCAL_FILE, WSL_SETTINGS_FILE], scriptRe: POSIX_HOOK_RE },
+      { origin: "local", paths: [WSL_SETTINGS_FILE], scriptRe: POSIX_HOOK_RE },
     ];
 
 export interface HookCheckResult {

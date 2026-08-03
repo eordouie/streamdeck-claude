@@ -24,7 +24,8 @@ pnpm icons:render       # regenerate icons/*.svg reference assets from src/icons
 pnpm icons:static       # rasterize manifest PNGs from assets/svg/ via @resvg/resvg-js
 ```
 
-There is **no test suite and no lint script**. Verify by `pnpm build && pnpm sd:validate && pnpm sd:reload`, then watch logs at `%APPDATA%\Elgato\StreamDeck\Plugins\com.julien.claudesessions.sdPlugin\logs\`.
+`pnpm test` runs the tsx/node:test suite (session-events, terminal-kind,
+transcript-title, vscode-window-match). For anything the tests don't reach, verify by `pnpm build && pnpm sd:validate && pnpm sd:reload`, then watch logs at `%APPDATA%\Elgato\StreamDeck\Plugins\com.julien.claudesessions.sdPlugin\logs\`.
 
 The Elgato `streamdeck restart` / `streamdeck list` commands fail from WSL with `EIO` because they `readlink` a UNC-targeted symlink — use `pnpm sd:reload` instead. First time after building, you still need to quit + relaunch the SD app once so the new bundle picks up the reload-watcher.
 
@@ -93,7 +94,7 @@ Every registered Claude Code event runs the same hook script (`notification.sh` 
 
 The plugin reads each session's event log every tick and replays it through the pure state machine in `src/session-events.ts` (`reduceEvents`). That function is the single source of truth for state transitions — adding a new state means one new case there plus registering the event in `install-hook.sh`. No `events.json`, no per-state sidecar files, no mtime/TTL/grace heuristics.
 
-The Windows hook is **not copied** — `install-hook.sh --target=windows` registers a PowerShell command that runs `hooks/notification.ps1` directly over `\\wsl.localhost\<distro>\…\hooks\notification.ps1`, so a single repo edit propagates to both. PID liveness still handles the case where a CC process dies hard (no `SessionEnd`): the session disappears from display via `state-tracker.ts`'s `prevLiveIds` check, and the orphan event log is cleaned the next time CC reuses that sessionId (`SessionStart` truncate).
+The Windows hook is **not copied** — `install-hook.sh --target=windows` registers a PowerShell command that runs `hooks/notification.ps1` directly over `\\wsl.localhost\<distro>\…\hooks\notification.ps1`, so a single repo edit propagates to both. PID liveness still handles the case where a CC process dies hard (no `SessionEnd`): the session disappears from display via `state-tracker.ts`'s `prevLiveIds` check, and orphan sidecars (event logs and .deckname files whose sid has no session file — sids are UUIDs and never reused) are removed by the grace-gated orphan sweep in `pruneDeadSessions`.
 
 ## Conventions worth knowing
 
@@ -184,12 +185,12 @@ press — landing on the tab is the feedback.
 Key layout and key behaviours live in the dotfiles repo, deliberately, so this
 fork's diff against upstream stays upstreamable:
 
-- `~/Projects/dotfiles/streamdeck/layout.toml` — 12 keys declared: eight
+- `~/Projects/dotfiles/streamdeck/layout.toml` — 14 keys declared: eight
   `com.julien.claudesessions.slot` entries, five on row 0 and three on row 1
-  left (this plugin), plus four
-  `kind = "signal"` entries on rows 1-2 right belonging to the sibling
+  left (this plugin), plus six
+  `kind = "signal"` entries on rows 1-2 belonging to the sibling
   `com.eordouie.decksignals` plugin (`~/Projects/deck-signals`) —
-  `signal = "meeting" | "slack" | "github" | "repos"`, mapped to that
+  `signal = "meeting" | "slack" | "github" | "repos" | "apps" | "mic"`, mapped to that
   plugin's action UUIDs by `build_claude_page.py`. The `command` kind/action
   still exists in both files but is currently unused on this deck: every
   command key was retired in favor of deck-signals' ambient keys (see that

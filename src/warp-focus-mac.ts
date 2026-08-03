@@ -77,6 +77,12 @@ function shortestCycle(
 }
 
 async function activateWarp(): Promise<{ ok: true } | { ok: false; error: string }> {
+  // Never LAUNCH Warp: this is a focus helper, and the unknown-terminal
+  // fallback chain tries Warp first — `open -a` on a machine where Warp
+  // isn't running would boot a whole terminal app just to discover the
+  // session isn't in it. "is running" asks LaunchServices without launching.
+  const probe = await spawnCapture("/usr/bin/osascript", ["-e", 'application "Warp" is running'], { timeoutMs: 3000 });
+  if (probe.stdout.trim() !== "true") return { ok: false, error: "warp-not-running" };
   const r = await spawnCapture("/usr/bin/open", ["-a", "Warp"]);
   if (r.err) return { ok: false, error: r.err };
   if (r.code !== 0) return { ok: false, error: r.stderr.trim() || `exit-${r.code}` };

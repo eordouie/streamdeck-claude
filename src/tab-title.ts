@@ -28,19 +28,22 @@ export function canonicalTabTitle(session: Pick<SessionInfo, "pid" | "deckName">
   return /^[\w-]{1,24}$/.test(word) ? word : `claude-${session.pid}`;
 }
 
-/** Cache of what we last wrote per pid, so ticks don't re-write constantly. */
-const written = new Map<number, { title: string; at: number }>();
+/** Cache of what we last wrote, keyed pid:sid — pid alone leaks across a
+ *  /clear (same process, new sessionId): a contested/backoff entry set for
+ *  the old conversation would suppress stamping of the new one for up to
+ *  CONTESTED_BACKOFF_MS. */
+const written = new Map<string, { title: string; at: number }>();
 /** Re-assert periodically in case something else (a shell prompt, the user)
  *  overwrote the title. Cheap: one tty write per session per interval. */
 const REASSERT_MS = 30_000;
 
 /** Stamps waiting to be checked against the live tab names. */
-const pendingVerify = new Map<number, { title: string; at: number }>();
+const pendingVerify = new Map<string, { title: string; at: number; pid: number }>();
 /** Sessions that overwrite our stamp — we stop pulling so the tab name
  *  doesn't ping-pong. Happens when CLAUDE_CODE_DISABLE_TERMINAL_TITLE was
  *  not in effect when that session started (restarting it fixes it); focus
  *  still works there via the re-stamp tier. */
-const contestedUntil = new Map<number, number>();
+const contestedUntil = new Map<string, number>();
 const VERIFY_DELAY_MS = 4_000;
 const CONTESTED_BACKOFF_MS = 600_000;
 
@@ -87,19 +90,25 @@ async function listTabNames(): Promise<string[] | null> {
 }
 
 /** Stamp every live interactive session's tab with its canonical name, then
- *  confirm the stamp stuck — a session that overwrites it is left alone. */
+ *  confirm the stamp stuck — a session that overwrites it is left alone.
+ *
+ *  Ghostty only: the OSC 2 stamp is this fork's Ghostty tab-identity
+ *  mechanism. Stamping other hosts did nothing useful and, inside tmux,
+ *  retitled the PANE rather than the tab — the stamp silently landing on
+ *  the wrong layer. */
 export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise<void> {
   if (platform() !== "darwin") return;
   const now = Date.now();
-  const livePids = new Set<number>();
+  const liveKeys = new Set<string>();
   await Promise.all(
     sessions
-      .filter((s) => s.kind !== "bg" && s.terminal !== "vscode")
+      .filter((s) => s.kind !== "bg" && s.terminal === "ghostty")
       .map(async (s) => {
-        livePids.add(s.pid);
-        if ((contestedUntil.get(s.pid) ?? 0) > now) return;
+        const key = `${s.pid}:${s.sessionId}`;
+        liveKeys.add(key);
+        if ((contestedUntil.get(key) ?? 0) > now) return;
         const title = canonicalTabTitle(s);
-        const prev = written.get(s.pid);
+        const prev = written.get(key);
         if (prev && prev.title === title && now - prev.at < REASSERT_MS) return;
         const dev = await ttyForPid(s.pid);
         if (!dev) return;
@@ -107,8 +116,8 @@ export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise
           if (!prev || prev.title !== title) {
             streamDeck.logger.info(`tab title: pid=${s.pid} -> "${title}"`);
           }
-          written.set(s.pid, { title, at: now });
-          pendingVerify.set(s.pid, { title, at: now });
+          written.set(key, { title, at: now });
+          pendingVerify.set(key, { title, at: now, pid: s.pid });
         }
       }),
   );
@@ -119,13 +128,13 @@ export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise
     const names = await listTabNames();
     if (names) {
       const present = new Set(names);
-      for (const [pid, p] of due) {
-        pendingVerify.delete(pid);
+      for (const [key, p] of due) {
+        pendingVerify.delete(key);
         if (present.has(p.title)) continue;
-        contestedUntil.set(pid, now + CONTESTED_BACKOFF_MS);
-        written.delete(pid);
+        contestedUntil.set(key, now + CONTESTED_BACKOFF_MS);
+        written.delete(key);
         streamDeck.logger.warn(
-          `tab title contested for pid=${pid}: "${p.title}" was overwritten, so the tab name is left alone ` +
+          `tab title contested for pid=${p.pid}: "${p.title}" was overwritten, so the tab name is left alone ` +
             `(CLAUDE_CODE_DISABLE_TERMINAL_TITLE was not in effect when that session started — restart it for a ` +
             `stable name). Slot focus still works there via the re-stamp tier.`,
         );
@@ -134,8 +143,8 @@ export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise
   }
 
   for (const map of [written, pendingVerify, contestedUntil]) {
-    for (const pid of map.keys()) {
-      if (!livePids.has(pid)) map.delete(pid);
+    for (const key of map.keys()) {
+      if (!liveKeys.has(key)) map.delete(key);
     }
   }
 }

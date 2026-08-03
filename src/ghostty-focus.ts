@@ -5,10 +5,12 @@ import { focusGhosttyTabOnMac } from "./ghostty-focus-mac.js";
 
 /** Options for the Ghostty focus attempt. */
 export interface GhosttyFocusOpts {
-  /** When true, a failed tab match still activates the Ghostty app (the user
-   *  lands in Ghostty and picks the tab themselves). Set by the stamped
-   *  "ghostty" dispatch; left false in the "unknown" back-compat chain so a
-   *  guess never raises an app the session may not live in. */
+  /** When true, a failed tab match still counts as "landed in Ghostty" (the
+   *  user picks the tab themselves). Set by the stamped "ghostty" dispatch;
+   *  false in the "unknown" back-compat chain. NOTE the macOS matcher must
+   *  activate Ghostty to read its Window menu at all, so even a miss with
+   *  this false can leave Ghostty frontmost — the flag governs the reported
+   *  outcome and the retry behavior, not whether activation happens. */
   activateOnMiss?: boolean;
   /** Session pid — its controlling tty IS the tab, so a drifted title can be
    *  re-stamped and matched again. */

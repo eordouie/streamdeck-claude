@@ -157,6 +157,12 @@ merge "SessionStart"     ""
 merge "Notification"     ""
 merge "PreToolUse"       ""
 merge "PostToolUse"      ""
+# The DENIAL half of the tool lifecycle: a rejected plan / ESC'd question
+# fires PostToolUseFailure (not PostToolUse), and a denied permission fires
+# PermissionDenied. Without these two, the reducer's awaiting* flags had no
+# clear on the "no" path and stuck for the rest of the turn.
+merge "PostToolUseFailure" ""
+merge "PermissionDenied" ""
 merge "Stop"             ""
 merge "StopFailure"      ""
 merge "UserPromptSubmit" ""
@@ -167,7 +173,7 @@ merge "SessionEnd"       ""
 # --- Final summary ---------------------------------------------------------
 echo "Hook command:"
 echo "  $HOOK_CMD"
-echo "Registered for: SessionStart, Notification, PreToolUse, PostToolUse, Stop, StopFailure, UserPromptSubmit, SubagentStart, SubagentStop, SessionEnd"
+echo "Registered for: SessionStart, Notification, PreToolUse, PostToolUse, PostToolUseFailure, PermissionDenied, Stop, StopFailure, UserPromptSubmit, SubagentStart, SubagentStop, SessionEnd"
 echo "Settings: $SETTINGS_PATH  (backup at $BACKUP)"
 if [ "$TARGET" = "windows" ]; then
   echo

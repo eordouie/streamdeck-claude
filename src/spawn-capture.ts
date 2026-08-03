@@ -54,6 +54,11 @@ export function spawnCapture(
       resolve({ stdout, stderr, code, timedOut: timedOut || undefined });
     });
     if (opts.stdin !== undefined && child.stdin) {
+      // A child that fails to spawn (ENOENT) or dies mid-write surfaces the
+      // buffered write as an 'error' on the stdin stream — unhandled, that
+      // is an uncaught exception from the one function contracted never to
+      // reject.
+      child.stdin.on("error", () => {});
       child.stdin.end(opts.stdin);
     }
   });

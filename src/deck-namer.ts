@@ -38,6 +38,17 @@ const inflight = new Set<string>();
 const cooldownUntil = new Map<string, number>();
 /** Sidecar contents, cached forever per sid — the word never changes. */
 const known = new Map<string, string>();
+/** Sessions the namer has permanently given up on (repeated call failures) —
+ *  without this, a retired model id or broken binary re-spawned a failing
+ *  `claude -p` every RETRY_COOLDOWN_MS forever, for every unnamed session. */
+const gaveUp = new Set<string>();
+const MAX_NAMER_FAILURES = 3;
+const failures = new Map<string, number>();
+/** Naming runs strictly one at a time: two sessions named concurrently each
+ *  checked a taken-list captured before the other finished, and could both
+ *  land the same word — which then collides in the Window-menu exact match
+ *  and focuses the wrong tab. */
+let nameQueue: Promise<void> = Promise.resolve();
 
 function sidecarPath(sessionId: string): string {
   return join(WSL_SESSIONS_DIR, `${sessionId}.deckname`);
@@ -78,17 +89,43 @@ export function maybeName(opts: {
 }): void {
   const { sessionId, firstPrompt, title, takenWords } = opts;
   if (known.get(sessionId)) return;
+  if (gaveUp.has(sessionId)) return;
   if (!firstPrompt && !title) return; // don't rush — wait for real context
   if (inflight.has(sessionId)) return;
   if ((cooldownUntil.get(sessionId) ?? 0) > Date.now()) return;
   inflight.add(sessionId);
-  void nameSession(sessionId, firstPrompt, title, takenWords)
+  nameQueue = nameQueue
+    .then(() => nameSession(sessionId, firstPrompt, title, takenWords))
     .catch((err) => {
       streamDeck.logger.warn(`namer failed for ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
     })
     .finally(() => {
       inflight.delete(sessionId);
     });
+}
+
+/** Fresh from disk, not from the caller's snapshot: the caller's list was
+ *  captured before any queued naming ahead of us finished, so it can miss
+ *  the word the previous run just persisted. */
+async function takenWordsFromDisk(): Promise<string[]> {
+  try {
+    const { readdir } = await import("node:fs/promises");
+    const entries = await readdir(WSL_SESSIONS_DIR);
+    const words = await Promise.all(
+      entries
+        .filter((f) => f.endsWith(".deckname"))
+        .map(async (f) => {
+          try {
+            return (await readFile(join(WSL_SESSIONS_DIR, f), "utf8")).trim();
+          } catch {
+            return "";
+          }
+        }),
+    );
+    return words.filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 async function nameSession(
@@ -108,7 +145,7 @@ async function nameSession(
   }
   await mkdir(NAMER_CWD, { recursive: true });
 
-  const taken = takenWords.filter(Boolean);
+  const taken = [...new Set([...takenWords.filter(Boolean), ...(await takenWordsFromDisk())])];
   const prompt = [
     "You label a developer's parallel Claude Code sessions.",
     "Reply with EXACTLY ONE lowercase word (letters, 3-12 chars, no punctuation)",
@@ -127,6 +164,12 @@ async function nameSession(
     cwd: NAMER_CWD,
   });
   if (r.err || r.timedOut || r.code !== 0) {
+    const n = (failures.get(sessionId) ?? 0) + 1;
+    failures.set(sessionId, n);
+    if (n >= MAX_NAMER_FAILURES) {
+      gaveUp.add(sessionId);
+      streamDeck.logger.warn(`namer: giving up on ${sessionId} after ${n} failures — label stays the cwd basename`);
+    }
     streamDeck.logger.warn(
       `namer call failed for ${sessionId}: err=${r.err ?? "none"} code=${r.code} timedOut=${r.timedOut === true} stderr=${r.stderr.trim().slice(0, 200)}`,
     );
