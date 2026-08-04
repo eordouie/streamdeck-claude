@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { platform } from "node:os";
 import streamDeck from "@elgato/streamdeck";
+import { canonicalTabTitle } from "./naming-policy.js";
 import { spawnCapture } from "./spawn-capture.js";
 import type { SessionInfo } from "./sessions.js";
 
@@ -16,17 +17,11 @@ import type { SessionInfo } from "./sessions.js";
  * Window-menu item EXACTLY, which is immune to tab reordering, manually
  * opened tabs, and untitled-session ambiguity.
  *
- * Side benefit: the tab bar shows the same one-word names as the deck.
+ * Side benefit: the tab bar carries the same one-word names as the deck,
+ * embedded in the stable `claude-<pid>-<word>` convention.
  */
 
-/** Canonical tab name for a session: its deck word once assigned, else a
- *  pid-derived placeholder. NEVER the display label — that falls back to the
- *  cwd basename, which every session in the same directory would share, and a
- *  shared name is exactly the ambiguity this whole mechanism exists to kill. */
-export function canonicalTabTitle(session: Pick<SessionInfo, "pid" | "deckName">): string {
-  const word = session.deckName.trim();
-  return /^[\w-]{1,24}$/.test(word) ? word : `claude-${session.pid}`;
-}
+export { canonicalTabTitle };
 
 /** Cache of what we last wrote, keyed pid:sid — pid alone leaks across a
  *  /clear (same process, new sessionId): a contested/backoff entry set for
