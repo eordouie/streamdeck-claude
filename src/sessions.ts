@@ -8,7 +8,7 @@ import { derivedTranscriptPath, readFirstUserPrompt, readSessionTitle } from "./
 import { assignedName, maybeName, NAMER_CWD, touchSidecar } from "./deck-namer.js";
 import { PRUNE_GRACE_MS, sidecarMaxAgeMs } from "./naming-policy.js";
 import { WIN_SESSIONS_DIR, WSL_SESSIONS_DIR, WSL_SESSIONS_DIR_FROM_WIN } from "./env.js";
-import { parseEventLog, reduceEvents, type DerivedState, type TodoStatus } from "./session-events.js";
+import { interactiveState, parseEventLog, reduceEvents, type DerivedState, type TodoStatus } from "./session-events.js";
 
 /** WSL or Windows-native Claude Code session — they live in different folders
  *  with different process namespaces and need different liveness checks. */
@@ -77,7 +77,7 @@ export interface SessionInfo {
   /** Project label = name field if set, else basename(cwd). */
   label: string;
   startedAt: number;
-  rawStatus: "busy" | "idle";
+  rawStatus: "busy" | "idle" | "waiting";
   /** Awaiting a generic input notification from the user (elicitation_dialog,
    *  or any in-turn Notification with no/unknown notifType). */
   awaiting: boolean;
@@ -167,7 +167,10 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
         // showing them would flash slots and recursively trigger naming.
         if (raw.cwd === NAMER_CWD) return;
 
-        const status = raw.status === "busy" ? "busy" : "idle";
+        // "waiting" passes through: CC sets it while a user-facing dialog
+        // (AskUserQuestion) is open, and coercing it to idle masked the
+        // question on the key. Anything else unknown still reads idle.
+        const status = raw.status === "busy" || raw.status === "waiting" ? raw.status : "idle";
         const kind: "interactive" | "bg" = raw.kind === "bg" ? "bg" : "interactive";
 
         let derived: DerivedState = {
@@ -444,25 +447,15 @@ export async function wipeAllEventLogs(): Promise<{ wiped: number; errors: strin
  *  specific flags (permission, question) win over the generic catch-all so the
  *  distinct icon shows up.
  *
- *  The awaiting* flags outrank rawStatus only WHILE CC says "busy": CC keeps a
- *  session busy while it waits on the user, so busy+flag is a live prompt. An
- *  INTERRUPT, though, emits no hook event at all — the flags stay set in the
- *  log while pid.json flips idle. Honoring them there froze tiles on prompts
- *  that no longer existed and re-nagged them every RENAG window until the next
- *  prompt. rawStatus is CC's own bookkeeping and survives what the event log
- *  cannot see, so idle always reads as idle. */
+ *  The interactive status+flags decision lives in session-events.ts's
+ *  interactiveState — pure and unit-tested there (this module sits behind the
+ *  SDK import chain). Its doc comment carries the busy/waiting/idle
+ *  rationale, including why an interrupt's stale flags must read idle. */
 export function deriveState(s: SessionInfo, alive: boolean): SessionState {
   if (!alive) return "finished";
   if (s.kind === "bg") return deriveBgState(s);
   if (s.errored) return "error";
-  if (s.rawStatus === "busy") {
-    if (s.awaitingPlan) return "awaiting_plan";
-    if (s.awaitingPermission) return "awaiting_permission";
-    if (s.awaitingQuestion) return "awaiting_question";
-    if (s.awaiting) return "awaiting";
-    return s.subagentActive ? "subagent" : "working";
-  }
-  return "idle";
+  return interactiveState(s.rawStatus, s);
 }
 
 /** Mappe le json d'un agent bg vers un état bg_*. Table best-effort (un seul

@@ -236,3 +236,36 @@ export function parseEventLog(text: string): SessionEvent[] {
   }
   return out;
 }
+
+/** Displayed state for a LIVE interactive session, from CC's own pid.json
+ *  status plus the event-log flags. Pure and here (not sessions.ts) so it is
+ *  unit-testable — sessions.ts sits behind the SDK import chain.
+ *
+ *  The awaiting* flags outrank rawStatus while CC says "busy" OR "waiting":
+ *  CC flips pid.json to "waiting" when a user-facing dialog opens
+ *  (AskUserQuestion observed live 2026-08-04 — the old busy-only gate read
+ *  that as idle and masked the question). "waiting" with no flag still shows
+ *  a generic prompt: CC itself says it is blocked on the user, and a lost
+ *  hook event must not fake an idle. An INTERRUPT emits no hook event at
+ *  all — the flags stay set in the log while pid.json flips "idle" — so idle
+ *  always reads as idle, or tiles freeze on prompts that no longer exist. */
+export function interactiveState(
+  rawStatus: string,
+  s: {
+    awaiting: boolean;
+    awaitingPermission: boolean;
+    awaitingQuestion: boolean;
+    awaitingPlan: boolean;
+    subagentActive: boolean;
+  },
+): "awaiting_plan" | "awaiting_permission" | "awaiting_question" | "awaiting" | "subagent" | "working" | "idle" {
+  if (rawStatus === "busy" || rawStatus === "waiting") {
+    if (s.awaitingPlan) return "awaiting_plan";
+    if (s.awaitingPermission) return "awaiting_permission";
+    if (s.awaitingQuestion) return "awaiting_question";
+    if (s.awaiting) return "awaiting";
+    if (rawStatus === "waiting") return "awaiting";
+    return s.subagentActive ? "subagent" : "working";
+  }
+  return "idle";
+}

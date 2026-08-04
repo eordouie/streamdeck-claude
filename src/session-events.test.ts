@@ -178,3 +178,32 @@ test("liveBgAgents ages out unmatched starts by TTL — a leaked start cannot st
   assert.equal(liveBgAgents(starts, now), 2);
   assert.equal(liveBgAgents(starts, now + BG_AGENT_TTL_MS), 0, "everything eventually expires");
 });
+
+// --- interactiveState: the status+flags → displayed-state decision ---
+
+import { interactiveState } from "./session-events.js";
+
+const noFlags = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, subagentActive: false };
+
+test("waiting + question flag shows the question, not idle (AskUserQuestion flips pid.json to 'waiting')", () => {
+  assert.equal(interactiveState("waiting", { ...noFlags, awaitingQuestion: true }), "awaiting_question");
+});
+
+test("waiting honors the same flag priority as busy", () => {
+  assert.equal(interactiveState("waiting", { ...noFlags, awaitingPermission: true, awaitingQuestion: true }), "awaiting_permission");
+  assert.equal(interactiveState("waiting", { ...noFlags, awaitingPlan: true }), "awaiting_plan");
+});
+
+test("waiting with no flag still reads as a generic prompt — CC says it's waiting on the user", () => {
+  assert.equal(interactiveState("waiting", noFlags), "awaiting");
+});
+
+test("busy branch unchanged: flags win, else subagent/working", () => {
+  assert.equal(interactiveState("busy", { ...noFlags, awaitingQuestion: true }), "awaiting_question");
+  assert.equal(interactiveState("busy", { ...noFlags, subagentActive: true }), "subagent");
+  assert.equal(interactiveState("busy", noFlags), "working");
+});
+
+test("idle stays idle even with stale flags — the interrupt case must not regress", () => {
+  assert.equal(interactiveState("idle", { ...noFlags, awaitingQuestion: true, awaitingPermission: true }), "idle");
+});
