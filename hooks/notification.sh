@@ -29,9 +29,11 @@ fi
 mkdir -p "$SESSIONS_DIR"
 TARGET="${SESSIONS_DIR}/${SESSION_ID}.events.ndjson"
 
-# SessionEnd: drop the log and the one-time deck-name sidecar.
+# SessionEnd: drop the log. The one-word .deckname sidecar deliberately
+# survives — plain `claude --resume` reuses the session id, so the word is
+# reclaimed after a reboot; dormant sidecars age out in the plugin's sweep.
 if [ "$EVENT" = "SessionEnd" ]; then
-  rm -f "$TARGET" "${SESSIONS_DIR}/${SESSION_ID}.deckname"
+  rm -f "$TARGET"
   echo '{}'
   exit 0
 fi
