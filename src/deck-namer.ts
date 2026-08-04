@@ -1,8 +1,9 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
+import { takenWordsFromDisk } from "./naming-policy.js";
 import { spawnCapture } from "./spawn-capture.js";
 import { WSL_SESSIONS_DIR } from "./env.js";
 
@@ -86,8 +87,9 @@ export function maybeName(opts: {
   firstPrompt: string;
   title: string;
   takenWords: readonly string[];
+  liveSids: ReadonlySet<string>;
 }): void {
-  const { sessionId, firstPrompt, title, takenWords } = opts;
+  const { sessionId, firstPrompt, title, takenWords, liveSids } = opts;
   if (known.get(sessionId)) return;
   if (gaveUp.has(sessionId)) return;
   if (!firstPrompt && !title) return; // don't rush — wait for real context
@@ -95,7 +97,7 @@ export function maybeName(opts: {
   if ((cooldownUntil.get(sessionId) ?? 0) > Date.now()) return;
   inflight.add(sessionId);
   nameQueue = nameQueue
-    .then(() => nameSession(sessionId, firstPrompt, title, takenWords))
+    .then(() => nameSession(sessionId, firstPrompt, title, takenWords, liveSids))
     .catch((err) => {
       streamDeck.logger.warn(`namer failed for ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
     })
@@ -104,28 +106,20 @@ export function maybeName(opts: {
     });
 }
 
-/** Fresh from disk, not from the caller's snapshot: the caller's list was
- *  captured before any queued naming ahead of us finished, so it can miss
- *  the word the previous run just persisted. */
-async function takenWordsFromDisk(): Promise<string[]> {
-  try {
-    const { readdir } = await import("node:fs/promises");
-    const entries = await readdir(WSL_SESSIONS_DIR);
-    const words = await Promise.all(
-      entries
-        .filter((f) => f.endsWith(".deckname"))
-        .map(async (f) => {
-          try {
-            return (await readFile(join(WSL_SESSIONS_DIR, f), "utf8")).trim();
-          } catch {
-            return "";
-          }
-        }),
-    );
-    return words.filter(Boolean);
-  } catch {
-    return [];
-  }
+/** Keep a live session's sidecar mtime fresh: the dead-sidecar GC in
+ *  sessions.ts measures "time since last alive" off mtime, and a word
+ *  written weeks ago would otherwise age out the moment its session dies.
+ *  Guarded to one utimes per session per interval; ENOENT (sidecar GC'd or
+ *  never written) is fine. */
+const TOUCH_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const lastTouch = new Map<string, number>();
+
+export function touchSidecar(sessionId: string): void {
+  const now = Date.now();
+  if (now - (lastTouch.get(sessionId) ?? 0) < TOUCH_INTERVAL_MS) return;
+  lastTouch.set(sessionId, now);
+  const when = new Date();
+  void utimes(sidecarPath(sessionId), when, when).catch(() => {});
 }
 
 async function nameSession(
@@ -133,6 +127,7 @@ async function nameSession(
   firstPrompt: string,
   title: string,
   takenWords: readonly string[],
+  liveSids: ReadonlySet<string>,
 ): Promise<void> {
   // Re-check the sidecar (another plugin instance / earlier run may have won).
   if (await assignedName(sessionId)) return;
@@ -145,7 +140,7 @@ async function nameSession(
   }
   await mkdir(NAMER_CWD, { recursive: true });
 
-  const taken = [...new Set([...takenWords.filter(Boolean), ...(await takenWordsFromDisk())])];
+  const taken = [...new Set([...takenWords.filter(Boolean), ...(await takenWordsFromDisk(liveSids, WSL_SESSIONS_DIR))])];
   const prompt = [
     "You label a developer's parallel Claude Code sessions.",
     "Reply with EXACTLY ONE lowercase word (letters, 3-12 chars, no punctuation)",

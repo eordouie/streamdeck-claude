@@ -5,7 +5,8 @@ import streamDeck from "@elgato/streamdeck";
 import type { SessionState } from "./icons/index.js";
 import type { TerminalKind } from "./terminal-kind.js";
 import { derivedTranscriptPath, readSessionTitle } from "./transcript-title.js";
-import { assignedName, maybeName, NAMER_CWD } from "./deck-namer.js";
+import { assignedName, maybeName, NAMER_CWD, touchSidecar } from "./deck-namer.js";
+import { PRUNE_GRACE_MS, sidecarMaxAgeMs } from "./naming-policy.js";
 import { WIN_SESSIONS_DIR, WSL_SESSIONS_DIR, WSL_SESSIONS_DIR_FROM_WIN } from "./env.js";
 import { parseEventLog, reduceEvents, type DerivedState, type TodoStatus } from "./session-events.js";
 
@@ -252,13 +253,15 @@ export async function readAllSessions(): Promise<SessionInfo[]> {
   // naming call. The word never changes once assigned.
   const words = await Promise.all(sessions.map((s) => assignedName(s.sessionId)));
   const taken = words.filter(Boolean);
+  const liveSids: ReadonlySet<string> = new Set(sessions.map((s) => s.sessionId));
   sessions.forEach((s, i) => {
     if (s.kind === "bg") return;
     if (words[i]) {
       s.label = words[i];
       s.deckName = words[i];
+      touchSidecar(s.sessionId);
     } else {
-      maybeName({ sessionId: s.sessionId, firstPrompt: s.firstPrompt, title: s.title, takenWords: taken });
+      maybeName({ sessionId: s.sessionId, firstPrompt: s.firstPrompt, title: s.title, takenWords: taken, liveSids });
     }
   });
   // Prune cache entries whose session is gone (SessionEnd unlinked the log, or
@@ -280,11 +283,8 @@ export async function readAllSessions(): Promise<SessionInfo[]> {
   return sessions;
 }
 
-/** Grace before a confirmed-dead session's <pid>.json is deleted. A dead file
- *  never changes yet pre-prune was re-read every tick over the slow UNC; we wait
- *  this long past the last write so we never race a session that just dropped its
- *  json but whose first liveness probe flaked (or one shown briefly as finished). */
-const PRUNE_GRACE_MS = 60_000;
+// PRUNE_GRACE_MS lives in naming-policy.ts now, shared with the sidecar
+// GC policy (sidecarMaxAgeMs) so the two horizons stay side by side.
 
 /** Deletes the on-disk <pid>.json (and its now-orphan <sid>.events.ndjson) for
  *  every interactive session whose process is no longer live and whose file is
@@ -324,13 +324,10 @@ export async function pruneDeadSessions(
         } catch {
           /* ENOENT or already gone — fine */
         }
-        // The one-time deck-name sidecar dies with its session too — it was
-        // the one file nothing ever deleted when SessionEnd didn't fire.
-        try {
-          await unlink(join(src.path, `${s.sessionId}.deckname`));
-        } catch {
-          /* ENOENT — fine */
-        }
+        // The .deckname sidecar deliberately survives its session: plain
+        // `claude --resume` reuses the sid, so the word is reclaimed across
+        // reboots. Dormant sidecars age out via sidecarMaxAgeMs in the
+        // orphan sweep below.
         jsonCache.delete(jsonPath);
         eventLogCache.delete(eventsPath);
       }),
@@ -340,7 +337,9 @@ export async function pruneDeadSessions(
   // producers: CC rotating a process's sessionId on /clear (the old sid's
   // events/deckname are never referenced again — sids are UUIDs and never
   // reused, despite what an older comment here claimed), and SessionEnd not
-  // firing (crash, SIGKILL, bg agents). Grace-gated like the main prune.
+  // firing (crash, SIGKILL, bg agents). Event logs are grace-gated like the
+  // main prune; .deckname files persist DECKNAME_MAX_AGE_MS so dormant
+  // conversations stay resumable by name.
   const sids = new Set(sessions.map((s) => s.sessionId));
   await Promise.all(
     SESSION_SOURCES.map(async (src) => {
@@ -358,7 +357,7 @@ export async function pruneDeadSessions(
             const p = join(src.path, m[0]);
             try {
               const st = await stat(p);
-              if (now - st.mtimeMs < PRUNE_GRACE_MS) return;
+              if (now - st.mtimeMs < sidecarMaxAgeMs(m[0])) return;
               await unlink(p);
               eventLogCache.delete(p);
               pruned++;
