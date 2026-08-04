@@ -4,7 +4,7 @@ import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
 import type { SessionState } from "./icons/index.js";
 import type { TerminalKind } from "./terminal-kind.js";
-import { derivedTranscriptPath, readSessionTitle } from "./transcript-title.js";
+import { derivedTranscriptPath, readFirstUserPrompt, readSessionTitle } from "./transcript-title.js";
 import { assignedName, maybeName, NAMER_CWD, touchSidecar } from "./deck-namer.js";
 import { PRUNE_GRACE_MS, sidecarMaxAgeMs } from "./naming-policy.js";
 import { WIN_SESSIONS_DIR, WSL_SESSIONS_DIR, WSL_SESSIONS_DIR_FROM_WIN } from "./env.js";
@@ -204,10 +204,16 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
         // The label here is only the interim placeholder — readAllSessions
         // overwrites it with the one-time deck name once one is assigned.
         let title = "";
+        let firstPrompt = derived.firstPrompt;
         if (kind !== "bg") {
           const transcriptPath =
             derived.transcriptPath || derivedTranscriptPath(raw.cwd, raw.sessionId);
           title = await readSessionTitle(transcriptPath);
+          // Resumed sessions: SessionStart truncated the events log, so a
+          // session driven only by trivial openers ("continue") never
+          // re-earns a firstPrompt from events — mine the transcript's
+          // original one so the namer still has context.
+          if (!firstPrompt) firstPrompt = await readFirstUserPrompt(transcriptPath);
         }
 
         out.push({
@@ -216,7 +222,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           cwd: raw.cwd,
           label: basename(raw.cwd),
           title,
-          firstPrompt: derived.firstPrompt,
+          firstPrompt,
           deckName: "",
           startedAt: typeof raw.startedAt === "number" ? raw.startedAt : 0,
           rawStatus: status,
