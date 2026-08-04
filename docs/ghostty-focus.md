@@ -42,8 +42,12 @@ tab, background ones included.
 
 ### Canonical names
 
-`canonicalTabTitle()` returns the session's **deck word** once the namer has
-assigned one (`src/deck-namer.ts`), else `claude-<pid>`.
+`canonicalTabTitle()` (in `src/naming-policy.ts`) returns
+`claude-<pid>-<word>` once the namer has assigned the session's one-word
+deck name (`src/deck-namer.ts`), else `claude-<pid>`. The word persists in
+`<sid>.deckname` past session death, so a resumed conversation (same sid)
+reclaims it; the pid part keeps every live title unique even if a dormant
+conversation's word gets reused.
 
 It deliberately never uses the session's *display label*: that falls back to
 the cwd basename, which every session started in the same directory would
@@ -51,8 +55,8 @@ share — and a shared name is precisely the ambiguity this mechanism exists to
 kill. Deck words are unique among live sessions by construction (the namer
 refuses words already taken).
 
-Side benefit: the Ghostty tab bar ends up showing the same one-word names as
-the deck keys.
+Side benefit: the Ghostty tab bar ends up carrying the deck's one-word names,
+embedded in the stable `claude-<pid>-<word>` convention.
 
 ### Fallback ladder
 
