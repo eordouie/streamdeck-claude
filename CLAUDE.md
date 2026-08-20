@@ -118,7 +118,7 @@ plus command keys on a Stream Deck MK.2.
 `TERM_PROGRAM=ghostty` at SessionStart; `terminal-focus.ts` routes those
 sessions to `ghostty-focus(-mac).ts`. The plugin **assigns** each tab its
 identity rather than inferring one: `tab-title.ts` writes a unique canonical
-name (deck word, else `claude-<pid>`) as an OSC 2 sequence to `/dev/<tty>` of
+name (`claude-<pid>-<word>` once named, else `claude-<pid>`) as an OSC 2 sequence to `/dev/<tty>` of
 the session's pid — the tty *is* that tab's pty — re-asserting every 30 s.
 Focus is then an exact Window-menu match, with re-stamp-and-retry, then app
 activation; it never guesses a tab. **Requires
@@ -130,8 +130,12 @@ stamp. Full rationale and the three mechanisms this replaced:
 context (first substantial prompt and/or Claude's generated title), a single
 headless `claude -p --model haiku` call picks ONE distinguishing lowercase
 word. Persisted to `~/.claude/sessions/<sid>.deckname`, never changed for the
-session's life, unlinked at SessionEnd. Until then the key shows the cwd
-basename. The namer runs from a **sentinel cwd** (`~/.claude/deck-namer`) that
+session's life, and kept past SessionEnd so a plain `claude --resume` (same
+sid) reclaims it; dormant sidecars age out after 30 days dead. Until then the key shows the cwd
+basename. Resumed sessions whose truncated events log has no substantial
+prompt yet are named from the transcript's original first prompt
+(`readFirstUserPrompt` in `transcript-title.ts`). The namer runs from a
+**sentinel cwd** (`~/.claude/deck-namer`) that
 `sessions.ts` filters out — its own headless session would otherwise occupy a
 slot and recursively trigger naming.
 
@@ -143,20 +147,24 @@ only "finished or needs input *since you last engaged it*".
 
 **Per-slot mascots** (`icons/motifs.ts`). Each key position gets its own pixel
 character, in key order: Clawd, Chrome T-Rex, blue sauropod, silly goose, baby
-elephant, mama hen, llama, panda. All walk in place on idle (leg poses
-alternating every 3 frames + torso bob) and blink on a shared cadence with
-per-slot phase offsets; `working` walks the character across the key and
-`subagent` gives it four desynchronised babies (`slotCharacterWalk` /
+elephant, an olive-green stegosaurus, llama, panda. All walk in place on idle
+(leg poses alternating every 3 frames + torso bob) and blink on a shared
+cadence with per-slot phase offsets; `working` walks the character across the
+key and `subagent` gives it four desynchronised babies (`slotCharacterWalk` /
 `subagentWalk`).
 
 The single `MASCOTS` table owns each character's draw function, travel
 direction, and foot line together. Those were three parallel
 `switch ((slot - 1) % 5)` blocks, which is how you end up with a mascot that
 moonwalks or a family whose babies hover. A fourth field, `drawBaby`, is
-optional and defaults to the parent's own draw function — every baby so far
-is believably just a small copy of its parent, except the hen: a chick has no
-comb and is a different colour, so it needs its own sprite rather than a
-scaled hen.
+optional and defaults to the parent's own draw function — every current baby
+is believably just a small copy of its parent (the stegosaurus's included: a
+scaled-down copy with smaller plates reads fine as a hatchling). Nothing
+currently uses `drawBaby`, but keep the field — the hen/chick and cat/kitten
+pairs that occupied this slot before both needed it. (The stegosaurus is that
+slot's third occupant: a hen went through four rejected rebuilds, a cat went
+through two more, and both got replaced outright rather than rebuilt a fifth
+or third time — see `LESSONS.md`.)
 
 Two drawing rules learned the hard way: **leg tops must tuck one unit under
 the body**, or the walk bob opens a seam; and a character darker than the key
@@ -168,17 +176,101 @@ character-shaped hole.
 color}` settings; a press spawns the script. Exists because Elgato's built-in
 Text/Hotkey/Multi Action settings are a private schema (see `LESSONS.md`).
 
-**Free slots launch sessions.** `slot-action.ts` reads optional
-`emptyScript`/`emptyArgs` settings: pressing an empty slot opens a new Ghostty
-tab running `claude`. Unconfigured slots keep the old "nothing here" alert.
+**A free slot opens a tab, it does not start an agent** (2026-08-17). Pressing an
+empty slot runs `ghostty-new-agent.sh` with no command: one fresh Ghostty tab at
+a bare prompt, and the user types `claude`, `codex`, or whatever else. The deck
+never chooses the agent — that was the whole point of the change, and it is why
+`slot-action.ts` has one launch path (`openAgentTab`) instead of a gesture
+resolver, why the profile carries a single `launch` spec instead of a
+`providerLaunches` table, and why `AgentProvider` has no `launch` member at all.
+Superseded: tap→Claude / hold→Codex (`EMPTY_HOLD_MS`, `emptyHoldFired`, the
+launch-on-KeyUp dance), and the `emptyScript`/`emptyArgs`/`emptyHoldArgs`
+settings. **Do not reintroduce a per-key or per-provider launch command**; if a
+second agent needs deck support it needs a session *reader*, not a launcher.
+
+**The launch ID is the whole binding mechanism.** The tab's shell is spawned by
+Ghostty, so it inherits nothing from the plugin: `buildLaunchCommand` puts
+`STREAMDECK_LAUNCH_ID` into `STREAMDECK_LAUNCH_PREFIX`, the launcher types that
+prefix into the new tab, and whatever agent the user then types inherits it and
+stamps it through its hook. `PendingLaunches` matches on that id **alone** —
+never on provider, because the gesture no longer knows which agent will claim the
+key. Reservations last `DEFAULT_PENDING_TTL_MS` (2 min): the wait is a human
+typing, not a process starting.
+
+**A reserved slot renders as free.** The tab sits at a prompt until an agent is
+typed, so the reserved key shows the resting mascot, not a walking one — a
+walking mascot means a real session. The new tab is the only feedback a press
+owes you (same rule as the no-`showOk` one below).
+
+**A running agent gets a tile even with no record of its own**
+(`process-scan.ts` + `provisional-sessions.ts`, 2026-08-17). Codex is why: its
+TUI fires `SessionStart` when the *conversation* starts, not when the process
+does, and it writes no rollout file before then — measured, a trusted, fully
+started `codex` sat idle for 40 s having produced nothing on disk anywhere. So
+each tick also scans `ps` for agent CLIs and turns any unclaimed one into a
+normal `SessionInfo` (idle, aged by `ps -o lstart=`, cwd from `lsof`). Rules that
+must survive edits here:
+
+- **A real tty is required.** It is the only thing keeping the ChatGPT desktop
+  app's own `codex` app-server and the namer's headless `claude -p` calls off the
+  deck. Match on `basename(comm)` — `comm` is often a full vendor path.
+- **Provisional sessions must never reach file code.** They have no files;
+  `state-tracker.ts` appends them after `readAllSessions` and passes only
+  `recorded` to `pruneDeadSessions`.
+- **The pid is the handoff.** When the real record lands, the pid dedupe drops the
+  provisional twin, and equal ages keep the tile in place. No special case.
+- **You cannot read the launch id from the process.** macOS returns no
+  environment for another process — `ps -E` yields nothing even for a child we
+  spawned ourselves, and a `ps eww` dump shows only the exec-time environment, so
+  a variable exported by typing into a shell is invisible there too. The agent
+  does inherit `STREAMDECK_LAUNCH_ID` (that is how its hook reports it); it just
+  cannot be read back from outside. Hence the tab writes its tty under its launch
+  id (`launch-tty.ts`), and the tty joins process to slot.
+
+**Provider parity is the contract.** The only intended difference between a
+Claude session and a Codex one is the word `claude` vs `codex`. Every
+`provider === …` branch must justify itself as a *mechanical* difference — a
+different reader (pid JSON vs bridge record), a different on-disk layout to
+prune. Anything else is a regression: an audit on 2026-08-14 cut 12 branches to
+7 and found five that were purely gratuitous (Codex excluded from the deck-word
+namer, a truncated-session-id tab title, a cwd-basename label, never
+`killable`, self-reported liveness). Launching left the list entirely on
+2026-08-17 — there is nothing provider-shaped about opening a tab. Before adding
+a provider branch, ask whether the mechanism genuinely differs or whether you are
+just special-casing the newer provider.
+
+**Only Codex is tagged on the tile.** `providerLabel` renders on the bottom line
+for Codex and is absent for Claude. Labelling both was tried the day the bare-tab
+launch landed and rejected on sight (Ehsan, 2026-08-17): the tag marks the
+exception, and `claude` written across almost every tile is noise on a 72px key.
+A bare tile reads as Claude.
+
+**Log every empty-slot launch, not just failures.** The launcher can exit 0
+having typed into the WRONG tab (the Cmd+T keystroke race, see `LESSONS.md`),
+which is indistinguishable from "the key did nothing", so `openAgentTab` logs
+`script=… launchId=…` on every invocation.
 
 **Hook additions** (`hooks/notification.sh`): stamps `transcript_path` and the
 terminal kind at SessionStart, clips each `UserPromptSubmit` prompt (200
 chars) so the reducer can capture the session's first substantial prompt for
-naming context, and unlinks the `.deckname` sidecar at SessionEnd.
+naming context. The `.deckname` sidecar survives SessionEnd for resume.
 
 **No slot-number badge** on keys, and **no `showOk` checkmark** on a slot
-press — landing on the tab is the feedback.
+press — landing on the tab is the feedback. Nor on a kill: the checkmark covers
+the key for about a second, which is exactly when the tile is supposed to be seen
+going dark.
+
+**A kill you ordered skips the `finished` flash** (`kill-suppression.ts`,
+2026-08-17). `FINISHED_TTL_MS` exists so a session that ends on its OWN is not
+simply gone unexplained; a 3 s hold is already that explanation, and waiting it
+out made a kill feel like it took "a couple of good seconds". So `killSlot` marks
+the session on a delivered signal, and the tracker drops it from display at once
+and skips the promotion. Three rules to keep if you touch it: mark only when
+`killSession` reports `terminated` (a refused kill must leave the tile alone);
+suppress by **pid as well as session id**, because a dying agent can lose its
+session file before its process, and the process scan would otherwise hand the
+tile straight back as a provisional twin; and keep the 5 s ceiling — a process
+that survives both signals must reappear rather than leave a live session hidden.
 
 ### Where the deck config lives (not here)
 
@@ -196,9 +288,14 @@ fork's diff against upstream stays upstreamable:
   command key was retired in favor of deck-signals' ambient keys (see that
   repo's design spec for the rule that decided it) and remains available if
   a command key is ever wanted again.
+  The single `[launch]` table in the same file is what every slot key carries:
+  the script that opens a bare agent tab, plus the environment that tab exports.
 - `~/Projects/dotfiles/streamdeck/apply-layout.sh` — quit app → regenerate the
   page manifest → relaunch. `--dry-run` validates without writing.
-- `~/Projects/dotfiles/streamdeck/scripts/*.sh` — what command keys run.
+- `~/Projects/dotfiles/streamdeck/scripts/*.sh` — `ghostty-new-agent.sh` (the
+  tab launcher; no args = bare tab, args = typed as the tab's first command,
+  which is how deck-signals' repos key opens `claude /sync-status`) and what any
+  command key would run.
 
 ### macOS hook registration
 

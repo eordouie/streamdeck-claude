@@ -1,8 +1,10 @@
 import { platform } from "node:os";
 import streamDeck from "@elgato/streamdeck";
 import type { SessionOrigin } from "./sessions.js";
+import type { ProviderId, TerminateResult } from "./provider-types.js";
 import { WSL_DISTRO } from "./env.js";
 import { spawnCapture } from "./spawn-capture.js";
+import { processBelongsToProvider } from "./provider-process.js";
 
 /** Délai avant d'escalader SIGTERM → SIGKILL si le process refuse de partir. */
 const SIGKILL_ESCALATION_MS = 2000;
@@ -16,10 +18,14 @@ const SIGKILL_ESCALATION_MS = 2000;
  * (le tag `origin` y vaut "wsl" mais est sans effet). La branche win32 est
  * dormante sur Mac.
  */
-export async function killSession(pid: number, origin: SessionOrigin): Promise<void> {
+export async function killSession(
+  pid: number,
+  origin: SessionOrigin,
+  provider: ProviderId = "claude",
+): Promise<TerminateResult> {
   if (platform() === "win32") {
     await killWindows(pid, origin);
-    return;
+    return { terminated: true, reason: "termination-requested" };
   }
   // Identity check before signaling: a <pid>.json can outlive its process
   // (CC died while the SD app was off), and after a reboot the pid may have
@@ -27,23 +33,23 @@ export async function killSession(pid: number, origin: SessionOrigin): Promise<v
   // process that IS a claude — verified live: CC's comm is exactly "claude".
   const probe = await spawnCapture("/bin/ps", ["-p", String(pid), "-o", "comm="], { timeoutMs: 2000 });
   const comm = probe.stdout.trim().split("/").pop() ?? "";
-  if (probe.err || probe.code !== 0 || comm !== "claude") {
+  if (probe.err || probe.code !== 0 || !processBelongsToProvider(comm, provider)) {
     streamDeck.logger.warn(
-      `refusing to kill pid=${pid}: comm=${JSON.stringify(comm)} is not a claude process (recycled pid?)`,
+      `refusing to kill pid=${pid}: comm=${JSON.stringify(comm)} is not a ${provider} process (recycled pid?)`,
     );
-    return;
+    return { terminated: false, reason: `process-identity-mismatch:${provider}` };
   }
-  killNative(pid);
+  return killNative(pid);
 }
 
-function killNative(pid: number): void {
+function killNative(pid: number): TerminateResult {
   try {
     process.kill(pid, "SIGTERM");
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
-    if (code === "ESRCH") return; // déjà mort
+    if (code === "ESRCH") return { terminated: false, reason: "process-already-exited" };
     streamDeck.logger.warn(`SIGTERM ${pid} failed: ${code ?? String(err)}`);
-    return;
+    return { terminated: false, reason: `sigterm-failed:${code ?? "unknown"}` };
   }
   setTimeout(() => {
     try {
@@ -54,6 +60,7 @@ function killNative(pid: number): void {
       // déjà mort entre-temps — rien à faire
     }
   }, SIGKILL_ESCALATION_MS);
+  return { terminated: true, reason: "termination-requested" };
 }
 
 async function killWindows(pid: number, origin: SessionOrigin): Promise<void> {

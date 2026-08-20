@@ -71,6 +71,7 @@ if ($eventName -eq 'SessionStart') {
 }
 
 $ts = [int64](([DateTimeOffset]::UtcNow).ToUnixTimeMilliseconds())
+$launchId = $env:STREAMDECK_LAUNCH_ID
 
 # For TodoWrite, snapshot the list's statuses so the plugin can draw a
 # progress column. [string[]] cast preserves array shape for 0/1-element
@@ -91,6 +92,7 @@ if ($toolName)         { $entry.tool      = $toolName }
 if ($notifType)        { $entry.notifType = $notifType }
 if ($termKind)         { $entry.term      = $termKind }
 if ($null -ne $todos)  { $entry.todos     = $todos }
+if ($launchId)          { $entry.launchId  = $launchId }
 $line = $entry | ConvertTo-Json -Compress
 
 Add-Content -Path $target -Value $line -Encoding utf8

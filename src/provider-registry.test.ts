@@ -5,7 +5,6 @@ import type { AgentProvider } from "./provider-types.js";
 
 const provider = (id: string): AgentProvider => ({
   id,
-  launch: { script: "launch-agent.sh", args: [id] },
   async readSessions() { return []; },
   async filterLive() { return new Set(); },
   async focus() { return { matched: false, reason: "test" }; },

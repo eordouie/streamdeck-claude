@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
-import { takenWordsFromDisk } from "./naming-policy.js";
+import { selfReferentialWords, takenWordsFromDisk } from "./naming-policy.js";
 import { spawnCapture } from "./spawn-capture.js";
 import { WSL_SESSIONS_DIR } from "./env.js";
 
@@ -34,6 +34,10 @@ const NAMER_TIMEOUT_MS = 45_000;
 const RETRY_COOLDOWN_MS = 120_000;
 const WORD_RE = /^[a-z][a-z0-9-]{2,11}$/;
 const REJECT = new Set(["session", "claude", "code", "project", "projects", "help", "question", "task", "work"]);
+
+/** Backstop against the namer naming a session after its own sentinel cwd —
+ *  see selfReferentialWords for the measurement behind it. */
+const SELF_WORDS = selfReferentialWords(NAMER_CWD);
 
 const inflight = new Set<string>();
 const cooldownUntil = new Map<string, number>();
@@ -142,10 +146,19 @@ async function nameSession(
 
   const taken = [...new Set([...takenWords.filter(Boolean), ...(await takenWordsFromDisk(liveSids, WSL_SESSIONS_DIR))])];
   const prompt = [
-    "You label a developer's parallel Claude Code sessions.",
+    "You label a developer's parallel agent sessions.",
     "Reply with EXACTLY ONE lowercase word (letters, 3-12 chars, no punctuation)",
     "that most distinctively identifies this session among the others.",
     "Pick the specific subject being worked on (a tool, component, domain, artifact).",
+    "",
+    // Without this the model names thin sessions after the namer's own sentinel
+    // working directory — see selfReferentialWords. Verified to flip
+    // "what is the latest news" from "deck" to "news"/"briefing".
+    "The session described below is NOT the one you are running in. Ignore your",
+    "own working directory, its name, and any project context you were given:",
+    "they belong to the labelling tool, not to the session. Name it ONLY from the",
+    "two lines below.",
+    "",
     `Never use generic words (code, session, help, project, task, question)${taken.length ? ` and never any of: ${taken.join(", ")}` : ""}.`,
     "",
     `Session title: ${title || "(none yet)"}`,
@@ -173,6 +186,16 @@ async function nameSession(
   const word = (r.stdout.trim().split(/\s+/)[0] ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "");
   if (!WORD_RE.test(word) || REJECT.has(word) || taken.includes(word)) {
     streamDeck.logger.warn(`namer produced unusable word ${JSON.stringify(word)} for ${sessionId}`);
+    return;
+  }
+  if (SELF_WORDS.has(word)) {
+    // Rejected rather than accepted-with-a-shrug: this word describes the
+    // labelling tool, so it is wrong for EVERY session and would be wrong
+    // identically for the next one too. The cooldown retries; until then the
+    // key shows the cwd basename, which is at least true.
+    streamDeck.logger.warn(
+      `namer echoed its own context (${JSON.stringify(word)}) for ${sessionId} — rejected, will retry`,
+    );
     return;
   }
   await writeFile(sidecarPath(sessionId), `${word}\n`);

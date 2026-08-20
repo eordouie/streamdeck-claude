@@ -1,6 +1,6 @@
 # streamdeck-claude
 
-> A Stream Deck plugin that mirrors live [Claude Code](https://github.com/anthropics/claude-code) CLI session state on as many keys as you assign it.
+> A Stream Deck plugin that mirrors live [Claude Code](https://github.com/anthropics/claude-code) and OpenAI Codex CLI session state on as many keys as you assign it.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20WSL-lightgrey.svg)](#compatibility)
@@ -21,7 +21,9 @@ of upstream:
 | **Attention flash** | A key flashes from the moment its session finishes or needs input until you press it (or reply). Static idle doesn't flash. |
 | **Per-slot mascots** | Each key position has its own walking, blinking pixel character on idle. |
 | **Command keys** | A first-party action that runs a configured script — used for `/pull-all`, Esc, new-session launchers, etc. |
-| **Free slot = new session** | Pressing an empty slot opens a new Ghostty tab running `claude`. |
+| **Free slot = new tab** | Press an **empty** slot and you get one fresh Ghostty tab at a bare prompt. It runs no agent: you type `claude`, `codex`, or anything else yourself. The key is held for whatever you start there (2 min), so your session becomes that key's mascot. The launch environment lives in `[launch]` in `dotfiles/streamdeck/layout.toml`. |
+| **A key lights up when the agent starts** | ~1 s after you type `claude` or `codex`, not when the agent first writes something. A `ps` scan each tick claims any agent CLI attached to a terminal, so Codex — which announces nothing until you send it a message — still gets its tile immediately. A new session record also wakes the tick on creation instead of waiting out the 1 s poll. |
+| **Agent tag on the key** | A Codex session's key shows `codex` on its bottom line; a Claude session shows nothing there — the tag marks the exception, and a bare tile reads as Claude. Model and effort were tried here and removed: on a 72px key they read as noise. |
 
 ### Extra setup for this fork
 
@@ -30,11 +32,22 @@ pnpm install && pnpm build
 pnpm sd:link                 # symlink the plugin into the Stream Deck app
 pnpm install:hook            # register hooks in ~/.claude/settings.json
 pnpm check:hooks             # verify they took
+pnpm install:codex-hook      # optional: register the Codex lifecycle bridge
+pnpm check:codex-hooks       # optional: verify the Codex registration
+# On WSL, for Windows-native Codex:
+pnpm install:codex-hook:windows
 ```
 
-Then, **required for tab focus to work**, make sure this is in the environment
-before `claude` starts (put it in `~/.claude/settings.json`'s `env` block, your
-shell rc, or both):
+Codex support uses Codex's lifecycle hooks rather than polling its private
+session files. The bridge writes a small record and the same event-log format
+the plugin already uses for Claude. After `pnpm install:codex-hook`, review and
+trust the hook in Codex with `/hooks`, then start a new Codex session. Claude
+and Codex sessions can occupy the same deck concurrently.
+
+Then, **required for tab focus to work**, the Claude provider launch spec sets
+this automatically. For manually started Claude sessions, make sure this is
+in the environment before `claude` starts (put it in your shell rc or
+`~/.claude/settings.json`'s `env` block):
 
 ```
 CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
@@ -76,6 +89,7 @@ fork's diff against upstream stays upstreamable. See the "Fork notes" section of
     a specific integrated-terminal tab. See [`docs/vscode-focus.md`](docs/vscode-focus.md).
   If no match is found, the clipboard copy still happens so you can paste the path.
 - **Long-press (≥500 ms) → reset that session's state log** — useful if a stuck `awaiting` lingers.
+- **Hold 3 s → kill the agent.** The tile goes dark as soon as the signal lands, without the `finished` flash a self-ended session gets: you held the key for three seconds, so the empty slot is the only confirmation worth showing. If the process somehow survives both SIGTERM and SIGKILL, the tile returns after 5 s rather than hiding a live session.
 - **Setup key** — wipes all event logs and re-renders every slot in one press. Also self-checks the hook registration: if it's stale or missing (icons would silently break — e.g. a permission padlock that never clears), the key shows an amber **HOOKS** warning. Fix with `pnpm install:hook`, then reload.
 
 ## Compatibility
@@ -83,7 +97,7 @@ fork's diff against upstream stays upstreamable. See the "Fork notes" section of
 | | Support |
 |---|---|
 | **Stream Deck app** | macOS 12+, Windows 10+ (Stream Deck app ≥ 6.5) |
-| **Claude CLI host** | macOS, Linux, WSL, Windows-native — sessions on any of these show up |
+| **Agent CLI host** | Claude Code and Codex CLI on macOS, Linux, WSL, Windows-native — sessions on any of these show up |
 | **Stream Deck app on Linux** | Not supported — Elgato doesn't ship a Linux app |
 | **Node.js** | ≥ 20 (bundled into the plugin runtime by the Stream Deck app) |
 | **Terminal integration** | Warp tab focus + VS Code window raise on macOS + Windows; clipboard copy works with any terminal |
@@ -129,7 +143,9 @@ After linking, **quit + relaunch the Stream Deck app** (right-click tray icon �
 
 Drag **Claude Session Slot** onto as many keys as you want to dedicate to live sessions. The plugin orders them by deck position (top-to-bottom, left-to-right). Optionally, drag the **Claude Setup** action onto one more key as a maintenance button.
 
-Run `claude` in a terminal — the first slot fills with the project name, amber while working, blue when idle. Open `claude` in another `cwd` and slot 2 lights up.
+Run `claude` or `codex` in a terminal — the first slot fills with its deck word, amber while working, blue when idle. Open another agent in another `cwd` and slot 2 lights up. Both providers share one slot pool, one word pool, and one tab-title convention; the only visible difference is the word `codex` on a Codex key's bottom line.
+
+Codex sessions additionally require its lifecycle hooks to be **trusted** (`/hooks` inside a Codex session) — they feed the same event log the slots read. Until then a Codex session runs normally but its slot stays empty, which looks identical to the launcher having failed.
 
 ## Development
 

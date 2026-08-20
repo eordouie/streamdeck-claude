@@ -1,6 +1,6 @@
 # Architecture
 
-How the plugin discovers Claude Code sessions, derives state, and renders icons. This is reference material — for what the plugin *does*, see the top-level [`README.md`](../README.md).
+How the plugin discovers Claude Code and Codex sessions, derives state, and renders icons. This is reference material — for what the plugin *does*, see the top-level [`README.md`](../README.md).
 
 ## Session discovery
 
@@ -15,6 +15,20 @@ Each `SessionInfo` carries an `origin: "wsl" | "windows"` tag so the right liven
 
 ## State derivation
 
+### Codex adapter
+
+Codex does not expose Claude Code's per-pid session JSON contract. Instead,
+`hooks/codex-notification.sh` is registered in `~/.codex/hooks.json` by
+`pnpm install:codex-hook`. It writes a small record and the same normalized
+`<sessionId>.events.ndjson` stream under `~/.codex/streamdeck/sessions/`.
+
+The plugin reads Claude and Codex records through the same `SessionInfo`,
+reducer, tracker, renderer, and slot ordering. Codex's `PermissionRequest`
+maps to the shared permission state; `SessionEnd` marks the bridge record
+inactive so the normal short `finished` transition still applies. The bridge
+does not kill Codex on a long press because Codex hooks provide no safe process
+identity; the existing Claude kill path is unchanged.
+
 Every registered Claude Code hook event appends one JSON line to `~/.claude/sessions/<sessionId>.events.ndjson` — a single source of truth, no per-state sidecar files, no mtime heuristics. The plugin replays each log every tick through the pure state machine in `src/session-events.ts` (`reduceEvents`).
 
 | Hook event | Effect on state |
@@ -23,15 +37,29 @@ Every registered Claude Code hook event appends one JSON line to `~/.claude/sess
 | `Notification[permission_prompt]` | sets `awaitingPermission` (only in-turn) |
 | `Notification[*]` other in-turn types | sets `awaiting` (catch-all for `elicitation_dialog` / unknown / older logs) |
 | `Notification` post-Stop (`idle_prompt`) | ignored — filtered by reducer's `inTurn` guard |
-| `Stop` | clears `awaiting` / `awaitingPermission` / `awaitingQuestion` / `awaitingPlan` |
+| `Stop` | clears `awaiting` / `awaitingPermission` / `awaitingQuestion` / `awaitingPlan` / `errored` |
 | `PreToolUse[ExitPlanMode]` | sets `awaitingPlan` |
 | `PostToolUse[ExitPlanMode]` | clears `awaitingPlan` |
 | `PreToolUse[AskUserQuestion]` | sets `awaitingQuestion` |
 | `PostToolUse[AskUserQuestion]` | clears `awaitingQuestion` |
-| `StopFailure` | sets `errored` |
+| `StopFailure` | sets `errored` **only if a turn was in progress** (`errored: state.inTurn`) — see below |
 | `UserPromptSubmit` | clears all `awaiting*` flags + `errored` |
-| `SubagentStart` / `SubagentStop` | bumps `subagentDepth` ±1 |
+| `PreToolUse` / `PostToolUse` / `PostToolUseFailure` (any tool) | clears `errored` — proof of life |
+| `SubagentStart` / `SubagentStop` | bumps `subagentDepth` ±1, clears `errored` |
 | `SessionEnd` | unlinks the log |
+
+**`StopFailure` is a hook outcome, not a session failure** (fixed 2026-08-19).
+A Stop *hook* exiting non-zero fires this event, and on this machine Stop hooks
+exit non-zero by design — `deck-capture-nudge.py` blocks to force a capture.
+CC also fires it against an already-stopped session: measured 16 s after a clean
+`Stop`, and again two minutes after an `idle_prompt`. So only a `StopFailure`
+that interrupts a turn still in progress is evidence of failure, and `errored`
+now clears on any subsequent proof of life rather than waiting for the next
+`UserPromptSubmit`. Before that, one deliberate hook block left a slot pulsing
+the red error bolt for ~24 h while the session sat healthy and idle — the tile
+outlived a `SubagentStop` and an `agent_completed` that both proved it fine. A
+persistently failing hook is a CONFIG problem and belongs on the setup key's
+hook-warning surface, never on a per-session alarm.
 
 The `notification_type` discrimination requires hooks to capture CC's `notification_type` field into the NDJSON `notifType` column — both `notification.sh` and `notification.ps1` already do this. Older logs without `notifType` fall through to plain `awaiting` (catch-all), so the regression risk is bounded.
 

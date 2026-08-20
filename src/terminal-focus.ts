@@ -30,7 +30,7 @@ export interface FocusResult {
  *             that started before the hook stamp existed or where env detection
  *             missed.
  */
-export async function focusTerminalForSession(opts: {
+export interface FocusTarget {
   cwd: string;
   terminal: TerminalKind;
   origin: SessionOrigin;
@@ -40,7 +40,9 @@ export async function focusTerminalForSession(opts: {
   /** The unique name the plugin stamps on this session's tab — Ghostty focus
    *  matches it exactly. */
   canonicalTitle?: string;
-}): Promise<FocusResult> {
+}
+
+export async function focusTerminalForSession(opts: FocusTarget): Promise<FocusResult> {
   const { cwd, terminal, origin, pid, canonicalTitle } = opts;
   switch (terminal) {
     case "warp":

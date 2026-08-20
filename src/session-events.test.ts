@@ -7,6 +7,17 @@ test("SessionStart term is reduced into DerivedState.terminal", () => {
   assert.equal(reduceEvents(parseEventLog(log)).terminal, "vscode");
 });
 
+test("SessionStart launch ID is preserved through the normalized state", () => {
+  const log = [
+    { ts: 1, event: "SessionStart", launchId: "launch-claude" },
+    { ts: 2, event: "UserPromptSubmit" },
+    { ts: 3, event: "Stop" },
+  ]
+    .map((e) => JSON.stringify(e))
+    .join("\n");
+  assert.equal(reduceEvents(parseEventLog(log)).launchId, "launch-claude");
+});
+
 test("terminal carries through a turn (UserPromptSubmit/Stop preserve it)", () => {
   const log = [
     { ts: 1, event: "SessionStart", term: "warp" },
@@ -88,6 +99,14 @@ test("PermissionDenied clears the permission prompt — no is an answer", () => 
     ev("PermissionDenied", { tool: "Bash" }),
   ]);
   assert.equal(d.awaitingPermission, false);
+});
+
+test("Codex PermissionRequest maps to the shared permission state", () => {
+  const d = reduce([
+    ev("UserPromptSubmit", { prompt: "run the command now please" }),
+    ev("PermissionRequest", { tool: "Bash" }),
+  ]);
+  assert.equal(d.awaitingPermission, true);
 });
 
 test("resolved/informational notifications never flip the tile to needs-you", () => {
@@ -206,4 +225,120 @@ test("busy branch unchanged: flags win, else subagent/working", () => {
 
 test("idle stays idle even with stale flags — the interrupt case must not regress", () => {
   assert.equal(interactiveState("idle", { ...noFlags, awaitingQuestion: true, awaitingPermission: true }), "idle");
+});
+
+// ---------------------------------------------------------------------------
+// StopFailure must not paint a healthy session red.
+//
+// Regression suite for the 2026-08-18 "lever" bug: a slot pulsed the red error
+// bolt for ~24 h while the session sat idle and fine. `errored` was a latch set
+// by StopFailure with exactly ONE escape hatch (UserPromptSubmit), so a Stop
+// HOOK exiting non-zero — which happens BY DESIGN here, deck-capture-nudge.py
+// blocks to force a capture — permanently alarmed the tile.
+// ---------------------------------------------------------------------------
+
+const log = (events: Array<Record<string, unknown>>): string =>
+  events.map((e, i) => JSON.stringify({ ts: e.ts ?? i + 1, ...e })).join("\n");
+
+test("StopFailure AFTER a clean Stop does not error — it is hook bookkeeping", () => {
+  // The literal sequence off the deck (session "lever", 2026-08-18), real
+  // timestamps: the turn ended cleanly, then StopFailure arrived 16 s later.
+  const state = reduceEvents(
+    parseEventLog(
+      log([
+        { ts: 1787081000000, event: "UserPromptSubmit", prompt: "do a thing" },
+        { ts: 1787081049000, event: "PostToolUse", tool: "Bash" },
+        { ts: 1787081762000, event: "Stop" },
+        { ts: 1787081778000, event: "StopFailure" },
+      ]),
+    ),
+  );
+  assert.equal(state.errored, false, "a post-turn StopFailure is not a session failure");
+});
+
+test("StopFailure fired at an idle session does not error", () => {
+  // The other two from the same log: CC re-fires Stop hooks against a session
+  // that stopped long ago, after its ~60 s idle_prompt reminder.
+  const state = reduceEvents(
+    parseEventLog(
+      log([
+        { event: "UserPromptSubmit" },
+        { event: "Stop" },
+        { event: "Notification", notifType: "idle_prompt" },
+        { event: "StopFailure" },
+        { event: "Notification", notifType: "idle_prompt" },
+        { event: "StopFailure" },
+      ]),
+    ),
+  );
+  assert.equal(state.errored, false);
+});
+
+test("StopFailure DURING a turn still errors — the signal is not lost", () => {
+  const state = reduceEvents(
+    parseEventLog(log([{ event: "UserPromptSubmit" }, { event: "PreToolUse", tool: "Bash" }, { event: "StopFailure" }])),
+  );
+  assert.equal(state.errored, true, "a turn that ended by failing is a real error");
+});
+
+test("errored clears on any proof of life, not only on UserPromptSubmit", () => {
+  // Each of these alone must heal the tile. UserPromptSubmit was the ONLY one
+  // before the fix, which is why the bug needed a human to type in that exact
+  // tab to clear it.
+  const healers: Array<Record<string, unknown>> = [
+    { event: "PreToolUse", tool: "Bash" },
+    { event: "PostToolUse", tool: "Bash" },
+    { event: "PostToolUseFailure", tool: "Bash" },
+    { event: "Stop" },
+    { event: "SubagentStop" },
+    { event: "SubagentStart" },
+    { event: "UserPromptSubmit" },
+  ];
+  for (const healer of healers) {
+    const state = reduceEvents(
+      parseEventLog(log([{ event: "UserPromptSubmit" }, { event: "StopFailure" }, healer])),
+    );
+    assert.equal(state.errored, false, `${String(healer.event)}/${String(healer.tool ?? "")} must clear errored`);
+  }
+});
+
+test("a subagent's tool call clears errored even though the subagent gate is closed", () => {
+  // Tool events keep their subagentDepth gate for the awaiting flags, but
+  // errored is cleared outside it: work is work, whoever is doing it.
+  const state = reduceEvents(
+    parseEventLog(
+      log([
+        { event: "UserPromptSubmit" },
+        { event: "StopFailure" },
+        { event: "UserPromptSubmit" },
+        { event: "SubagentStart" },
+        { event: "StopFailure" },
+        { event: "PostToolUse", tool: "WebSearch" },
+      ]),
+    ),
+  );
+  assert.equal(state.errored, false);
+});
+
+test("the full lever log shape reduces to a calm session", () => {
+  // End-to-end over the real sequence, including the activity that followed the
+  // last StopFailure and used to be ignored: no awaiting flag, no error.
+  const state = reduceEvents(
+    parseEventLog(
+      log([
+        { event: "UserPromptSubmit", prompt: "post to slack" },
+        { event: "PreToolUse", tool: "mcp__claude_ai_Slack__slack_send_message" },
+        { event: "PostToolUse", tool: "mcp__claude_ai_Slack__slack_send_message" },
+        { event: "Stop" },
+        { event: "StopFailure" },
+        { event: "Notification", notifType: "idle_prompt" },
+        { event: "StopFailure" },
+        { event: "SubagentStop" },
+        { event: "Notification", notifType: "agent_completed" },
+      ]),
+    ),
+  );
+  assert.equal(state.errored, false);
+  assert.equal(state.awaiting, false);
+  assert.equal(state.awaitingPermission, false);
 });

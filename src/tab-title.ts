@@ -17,8 +17,8 @@ import type { SessionInfo } from "./sessions.js";
  * Window-menu item EXACTLY, which is immune to tab reordering, manually
  * opened tabs, and untitled-session ambiguity.
  *
- * Side benefit: the tab bar carries the same one-word names as the deck,
- * embedded in the stable `claude-<pid>-<word>` convention.
+ * Side benefit: the tab bar carries the same identity names as the deck,
+ * embedded in a stable provider-specific convention.
  */
 
 export { canonicalTabTitle };
@@ -97,22 +97,24 @@ export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise
   const liveKeys = new Set<string>();
   await Promise.all(
     sessions
-      .filter((s) => s.kind !== "bg" && s.terminal === "ghostty")
+      .filter((s) => s.kind !== "bg" && s.pid !== undefined && s.terminal === "ghostty")
       .map(async (s) => {
-        const key = `${s.pid}:${s.sessionId}`;
+        const pid = s.pid;
+        if (pid === undefined) return;
+        const key = `${pid}:${s.sessionId}`;
         liveKeys.add(key);
         if ((contestedUntil.get(key) ?? 0) > now) return;
         const title = canonicalTabTitle(s);
         const prev = written.get(key);
         if (prev && prev.title === title && now - prev.at < REASSERT_MS) return;
-        const dev = await ttyForPid(s.pid);
+        const dev = await ttyForPid(pid);
         if (!dev) return;
         if (await writeTabTitle(dev, title)) {
           if (!prev || prev.title !== title) {
-            streamDeck.logger.info(`tab title: pid=${s.pid} -> "${title}"`);
+            streamDeck.logger.info(`tab title: pid=${pid} -> "${title}"`);
           }
           written.set(key, { title, at: now });
-          pendingVerify.set(key, { title, at: now, pid: s.pid });
+          pendingVerify.set(key, { title, at: now, pid });
         }
       }),
   );

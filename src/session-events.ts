@@ -1,5 +1,5 @@
 /** Session state is a deterministic projection of an append-only NDJSON event
- *  log written by hooks (one line per Claude Code hook fire). The plugin reads
+ *  log written by Claude Code or Codex hooks (one line per hook fire). The plugin reads
  *  `<sid>.events.ndjson` each tick and replays it through `reduceEvents()` —
  *  no mtime heuristics, no per-state sidecar files, no race conditions between
  *  drop/rm pairs. Adding a new state = one case in `applyEvent`. */
@@ -29,6 +29,8 @@ export interface SessionEvent {
   transcript?: string;
   /** Clipped prompt text, present only on UserPromptSubmit lines. */
   prompt?: string;
+  /** Launch correlation ID supplied by the Stream Deck provider launcher. */
+  launchId?: string;
 }
 
 /** What the icon needs, derived from the event log. The session's busy/idle
@@ -66,6 +68,8 @@ export interface DerivedState {
   /** The FIRST substantial prompt (≥3 words) of the session, clipped by the
    *  hook — context for the one-time deck-name pick. "" until one lands. */
   firstPrompt: string;
+  /** Launch correlation ID captured at SessionStart, if launched by the deck. */
+  launchId?: string;
 }
 
 /** Internal accumulator: same as DerivedState plus `inTurn`, which is true
@@ -77,7 +81,7 @@ interface ReducerState extends DerivedState {
   inTurn: boolean;
 }
 
-const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], bgAgentStartTimes: [], terminal: "unknown", transcriptPath: "", firstPrompt: "", inTurn: false };
+const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], bgAgentStartTimes: [], terminal: "unknown", transcriptPath: "", firstPrompt: "", launchId: undefined, inTurn: false };
 
 /** How long an outstanding background-agent start stays visible without its
  *  SubagentStop. Long enough for real audits, short enough that a leaked
@@ -101,7 +105,7 @@ export function reduceEvents(events: readonly SessionEvent[]): DerivedState {
 function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
   switch (ev.event) {
     case "SessionStart":
-      return { ...ZERO, terminal: normaliseTerm(ev.term), transcriptPath: ev.transcript ?? "" };
+      return { ...ZERO, terminal: normaliseTerm(ev.term), transcriptPath: ev.transcript ?? "", launchId: ev.launchId };
 
     case "SessionEnd":
       return ZERO;
@@ -153,7 +157,14 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
       // next reset, instead of a real prompt being silently hidden.
       // Order is safe: the PreToolUse that *triggers* a permission_prompt fires
       // BEFORE its Notification, so this never clears the prompt it raises.
-      const next = state.subagentDepth === 0 ? { ...state, awaiting: false, awaitingPermission: false } : { ...state };
+      // errored clears unconditionally, outside the subagent gate: a tool call
+      // anywhere in this session — main thread or subagent — proves the session
+      // is running, which is exactly what an error tile claims it is not. Before
+      // this, errored had ONE escape hatch (UserPromptSubmit), so a slot stayed
+      // red through 24 h of healthy activity until someone typed in that tab.
+      const next = state.subagentDepth === 0
+        ? { ...state, awaiting: false, awaitingPermission: false, errored: false }
+        : { ...state, errored: false };
       if (ev.tool === "ExitPlanMode") return { ...next, awaitingPlan: true };
       if (ev.tool === "AskUserQuestion") return { ...next, awaitingQuestion: true };
       return next;
@@ -165,12 +176,21 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
     // approval" for the rest of a turn in which nothing is awaited.
     case "PostToolUse":
     case "PostToolUseFailure": {
-      const next = state.subagentDepth === 0 ? { ...state, awaiting: false, awaitingPermission: false } : { ...state };
+      // errored clears here too, and for the same reason as PreToolUse: a tool
+      // that RETURNED is proof of life.
+      const next = state.subagentDepth === 0
+        ? { ...state, awaiting: false, awaitingPermission: false, errored: false }
+        : { ...state, errored: false };
       if (ev.tool === "ExitPlanMode") return { ...next, awaitingPlan: false };
       if (ev.tool === "AskUserQuestion") return { ...next, awaitingQuestion: false };
       if (ev.event === "PostToolUse" && ev.tool === "TodoWrite" && ev.todos) return { ...next, todos: ev.todos };
       return next;
     }
+
+    case "PermissionRequest":
+      // Codex exposes the approval boundary as its own lifecycle event rather
+      // than Claude Code's Notification[permission_prompt].
+      return { ...state, awaitingPermission: true };
 
     case "PermissionDenied":
       // "No" is an answer: the prompt is gone, nothing is awaited anymore.
@@ -179,14 +199,32 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
     case "Stop":
       // A subagent cannot outlive the turn that spawned it, so depth is 0 once
       // the main turn stops — reset it to absorb any unmatched SubagentStart.
-      return { ...state, inTurn: false, awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, subagentDepth: 0 };
+      // errored clears: a turn that reached a clean Stop is a turn that worked.
+      return { ...state, inTurn: false, awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0 };
 
     case "StopFailure":
-      return { ...state, inTurn: false, awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: true, subagentDepth: 0 };
+      // A Stop HOOK exiting non-zero is NOT the session failing, and this event
+      // cannot tell the two apart on its own. Two facts make the difference
+      // (both measured 2026-08-18, session "lever"):
+      //   - Stop hooks here exit non-zero BY DESIGN: deck-capture-nudge.py
+      //     blocks to force a capture, and a block is reported as a failure.
+      //   - CC fires StopFailure against an ALREADY-STOPPED session — observed
+      //     16 s after a clean Stop, and again two minutes after an idle_prompt.
+      // So only a StopFailure that interrupts a turn still in progress is
+      // evidence that anything failed. Post-turn ones are hook bookkeeping and
+      // must leave the tile alone; `errored: state.inTurn` is that whole rule.
+      // A failing hook is a CONFIG problem and belongs on the setup key's
+      // hook-warning surface, never on a per-session alarm.
+      return { ...state, inTurn: false, awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: state.inTurn, subagentDepth: 0 };
 
     case "SubagentStart":
       return {
         ...state,
+        // Proof of life, like the tool events: a subagent starting or stopping
+        // means this session is doing work. In the 2026-08-18 "lever" case a
+        // SubagentStop landed five minutes after the last StopFailure, and
+        // ignoring it is what let the red tile outlive the truth by a day.
+        errored: false,
         subagentDepth: state.subagentDepth + 1,
         bgAgentStartTimes: [...state.bgAgentStartTimes, ev.ts].slice(-BG_AGENT_CAP),
       };
@@ -194,6 +232,7 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
     case "SubagentStop":
       return {
         ...state,
+        errored: false,
         subagentDepth: Math.max(0, state.subagentDepth - 1),
         // FIFO: retire the oldest outstanding start. With unpaired events the
         // bias favors newer spawns staying visible; ghosts age out via TTL.
@@ -228,6 +267,7 @@ export function parseEventLog(text: string): SessionEvent[] {
           term: typeof obj.term === "string" ? obj.term : undefined,
           transcript: typeof obj.transcript === "string" ? obj.transcript : undefined,
           prompt: typeof obj.prompt === "string" ? obj.prompt : undefined,
+          launchId: typeof obj.launchId === "string" ? obj.launchId : undefined,
         });
       }
     } catch {

@@ -3,19 +3,33 @@ import { platform } from "node:os";
 import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
 import type { SessionState } from "./icons/index.js";
-import type { TerminalKind } from "./terminal-kind.js";
+import { normaliseTerm, type TerminalKind } from "./terminal-kind.js";
 import { derivedTranscriptPath, readFirstUserPrompt, readSessionTitle } from "./transcript-title.js";
 import { assignedName, maybeName, NAMER_CWD, touchSidecar } from "./deck-namer.js";
-import { PRUNE_GRACE_MS, sidecarMaxAgeMs } from "./naming-policy.js";
-import { WIN_SESSIONS_DIR, WSL_SESSIONS_DIR, WSL_SESSIONS_DIR_FROM_WIN } from "./env.js";
+import { bgJobLabel, canonicalTabTitle, PRUNE_GRACE_MS, sidecarMaxAgeMs } from "./naming-policy.js";
+import { adoptParkedState, resolveBgOwners } from "./bg-owner.js";
+import type { FocusTarget } from "./terminal-focus.js";
+import {
+  WIN_CODEX_SESSIONS_DIR,
+  WIN_SESSIONS_DIR,
+  WSL_CODEX_SESSIONS_DIR,
+  WSL_CODEX_SESSIONS_DIR_FROM_WIN,
+  WSL_SESSIONS_DIR,
+  WSL_SESSIONS_DIR_FROM_WIN,
+} from "./env.js";
 import { interactiveState, parseEventLog, reduceEvents, type DerivedState, type TodoStatus } from "./session-events.js";
+import type { AgentProvider, AgentSession } from "./provider-types.js";
 
-/** WSL or Windows-native Claude Code session — they live in different folders
- *  with different process namespaces and need different liveness checks. */
+export type SessionProvider = "claude" | "codex";
+
+/** WSL or Windows-native session. Claude Code sessions are backed by the
+ *  provider's pid JSON; Codex sessions are backed by the bridge records that
+ *  its lifecycle hooks maintain. */
 export type SessionOrigin = "wsl" | "windows";
 
 export interface SessionSourceDir {
   origin: SessionOrigin;
+  provider: SessionProvider;
   path: string;
 }
 
@@ -24,11 +38,14 @@ export interface SessionSourceDir {
  *  Windows home. From a Linux-side plugin only WSL sessions are visible. */
 export const SESSION_SOURCES: SessionSourceDir[] = platform() === "win32"
   ? [
-      { origin: "wsl", path: WSL_SESSIONS_DIR_FROM_WIN },
-      { origin: "windows", path: WIN_SESSIONS_DIR },
+      { origin: "wsl", provider: "claude", path: WSL_SESSIONS_DIR_FROM_WIN },
+      { origin: "windows", provider: "claude", path: WIN_SESSIONS_DIR },
+      { origin: "wsl", provider: "codex", path: WSL_CODEX_SESSIONS_DIR_FROM_WIN },
+      { origin: "windows", provider: "codex", path: WIN_CODEX_SESSIONS_DIR },
     ]
   : [
-      { origin: "wsl", path: WSL_SESSIONS_DIR },
+      { origin: "wsl", provider: "claude", path: WSL_SESSIONS_DIR },
+      { origin: "wsl", provider: "codex", path: WSL_CODEX_SESSIONS_DIR },
     ];
 
 /** Surface readdir errors to the polling loop so it can log them once. */
@@ -55,6 +72,12 @@ interface JsonCacheEntry {
   raw: RawSession;
 }
 const jsonCache = new Map<string, JsonCacheEntry>();
+interface CodexJsonCacheEntry {
+  mtimeMs: number;
+  size: number;
+  raw: RawCodexSession;
+}
+const codexJsonCache = new Map<string, CodexJsonCacheEntry>();
 
 interface RawSession {
   pid: number;
@@ -68,13 +91,39 @@ interface RawSession {
   kind?: string;
   /** Pour les bg en attente : ex. "permission prompt". */
   waitingFor?: string;
+  /** bg only: this job's own id. */
+  jobId?: string;
+  /** interactive only: the bg job this session has parked. */
+  parkedJobId?: string;
 }
 
-export interface SessionInfo {
-  pid: number;
+interface RawCodexSession {
   sessionId: string;
   cwd: string;
-  /** Project label = name field if set, else basename(cwd). */
+  pid?: number;
+  startedAt: number;
+  launchId?: string;
+  updatedAt?: number;
+  active?: boolean;
+  status?: string;
+  terminal?: string;
+  transcriptPath?: string;
+}
+
+export interface SessionInfo extends AgentSession {
+  provider: SessionProvider;
+  pid?: number;
+  sessionId: string;
+  cwd: string;
+  /** Bottom-line agent tag: "codex" for Codex, absent for Claude. Ehsan's call
+   *  (2026-08-17, after seeing both labelled): the tag exists to mark the
+   *  EXCEPTION, and writing `claude` on almost every tile is noise on a 72px key
+   *  — you can read a bare tile as Claude. Model and effort were tried here and
+   *  removed for the same reason. */
+  providerLabel?: string;
+  /** Project label. For a bg job: its Claude Code `name` if set, else
+   *  basename(cwd) — see `bgJobLabel`. For an interactive session: basename(cwd),
+   *  replaced by the one-word deck name once the namer assigns one. */
   label: string;
   startedAt: number;
   rawStatus: "busy" | "idle" | "waiting";
@@ -118,8 +167,20 @@ export interface SessionInfo {
   bgStatus?: string;
   /** `waitingFor` du json pour les bg (ex. "permission prompt"). */
   bgWaitingFor?: string;
+  /** bg only: this job's own id (see bg-owner.ts). */
+  jobId?: string;
+  /** interactive only: the bg job this session has parked. */
+  parkedJobId?: string;
+  /** bg only: where a slot press should land. A bg job has no tab of its own,
+   *  so it borrows the tab of the interactive session that parked it.
+   *  undefined when that session is gone — the press reports that instead of
+   *  walking a focus chain that cannot match. Resolved in readAllSessions. */
+  owner?: FocusTarget;
   /** mtime logique du json (ms) si le json l'expose. Utilisé pour la liveness des bg (fraîcheur). */
   updatedAt?: number;
+  /** Codex bridge records remain on disk after SessionEnd so the tracker can
+   *  render the same short `finished` state as Claude sessions. */
+  active?: boolean;
 }
 
 const isPositiveInt = (x: unknown): x is number =>
@@ -220,10 +281,18 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
         }
 
         out.push({
+          provider: "claude",
           pid: raw.pid,
           sessionId: raw.sessionId,
           cwd: raw.cwd,
-          label: basename(raw.cwd),
+          // A bg job keeps this label for its whole life (the namer skips bg), so
+          // it uses the job's OWN name when Claude Code has given it one. The cwd
+          // basename is "projects" for every job started here, which tells the
+          // user nothing about which job the tile is.
+          label:
+            kind === "bg"
+              ? bgJobLabel(typeof raw.name === "string" ? raw.name : undefined, basename(raw.cwd))
+              : basename(raw.cwd),
           title,
           firstPrompt,
           deckName: "",
@@ -232,6 +301,8 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           kind,
           bgStatus: kind === "bg" ? raw.status : undefined,
           bgWaitingFor: kind === "bg" ? raw.waitingFor : undefined,
+          jobId: kind === "bg" ? raw.jobId : undefined,
+          parkedJobId: kind === "bg" ? undefined : raw.parkedJobId,
           updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : undefined,
           awaiting: derived.awaiting,
           awaitingPermission: derived.awaitingPermission,
@@ -244,22 +315,162 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           origin: src.origin,
           terminal: derived.terminal,
           transcriptPath: derived.transcriptPath,
+          launchId: derived.launchId,
         });
       }),
   );
   return out;
 }
 
-/** Reads every <pid>.json across all configured source directories. Stale
- *  (dead-pid) files are still returned; liveness filtering happens upstream. */
-export async function readAllSessions(): Promise<SessionInfo[]> {
+/** Reads the small records written by hooks/codex-notification.sh. Codex does
+ * not expose Claude Code's per-pid session directory, so the bridge owns the
+ * record and marks it inactive on SessionEnd. Event reduction stays shared. */
+async function readOneCodexSource(src: SessionSourceDir): Promise<SessionInfo[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(src.path);
+  } catch (err) {
+    // Codex support is optional; an absent ~/.codex/streamdeck directory is a
+    // normal first-run state and should not make the Claude setup key warn.
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      lastReadError = `${src.origin}/codex: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    return [];
+  }
+
+  const out: SessionInfo[] = [];
+  await Promise.all(
+    entries
+      .filter((f) => /^[A-Za-z0-9._-]+\.json$/.test(f))
+      .map(async (f) => {
+        const path = join(src.path, f);
+        let raw: RawCodexSession;
+        try {
+          const st = await stat(path);
+          const cached = codexJsonCache.get(path);
+          if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+            raw = cached.raw;
+          } else {
+            const parsed = JSON.parse(await readFile(path, "utf8")) as RawCodexSession;
+            if (
+              typeof parsed.sessionId !== "string" ||
+              !/^[A-Za-z0-9._-]+$/.test(parsed.sessionId) ||
+              typeof parsed.cwd !== "string" ||
+              typeof parsed.startedAt !== "number"
+            ) return;
+            codexJsonCache.set(path, { mtimeMs: st.mtimeMs, size: st.size, raw: parsed });
+            raw = parsed;
+          }
+        } catch {
+          return;
+        }
+
+        const eventsPath = join(src.path, `${raw.sessionId}.events.ndjson`);
+        let derived: DerivedState = {
+          awaiting: false,
+          awaitingPermission: false,
+          awaitingQuestion: false,
+          awaitingPlan: false,
+          errored: false,
+          subagentDepth: 0,
+          todos: [],
+          bgAgentStartTimes: [],
+          terminal: "unknown",
+          transcriptPath: "",
+          firstPrompt: "",
+        };
+        try {
+          const st = await stat(eventsPath);
+          const cached = eventLogCache.get(eventsPath);
+          if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+            derived = cached.derived;
+          } else {
+            derived = reduceEvents(parseEventLog(await readFile(eventsPath, "utf8")));
+            eventLogCache.set(eventsPath, { mtimeMs: st.mtimeMs, size: st.size, derived });
+          }
+        } catch (err: unknown) {
+          if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+            streamDeck.logger.warn(
+              `codex event-log read failed ${src.origin}/${raw.sessionId}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+
+        const transcriptPath = derived.transcriptPath || raw.transcriptPath || "";
+        const title = await readSessionTitle(transcriptPath);
+        out.push({
+          provider: "codex",
+          pid: typeof raw.pid === "number" && raw.pid > 0 ? raw.pid : undefined,
+          sessionId: raw.sessionId,
+          cwd: raw.cwd,
+          // No "codex-" prefix in the label: the bottom line carries the agent
+          // tag, which frees the top line to be the project/deck word exactly
+          // like Claude's slots.
+          label: basename(raw.cwd),
+          providerLabel: "codex",
+          title,
+          firstPrompt: derived.firstPrompt,
+          deckName: "",
+          startedAt: raw.startedAt,
+          rawStatus: raw.status === "busy" || raw.status === "waiting" ? raw.status : "idle",
+          kind: "interactive",
+          updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : undefined,
+          active: raw.active !== false,
+          awaiting: derived.awaiting,
+          awaitingPermission: derived.awaitingPermission,
+          awaitingQuestion: derived.awaitingQuestion,
+          awaitingPlan: derived.awaitingPlan,
+          errored: derived.errored,
+          subagentActive: derived.subagentDepth > 0,
+          todos: derived.todos,
+          bgAgentStarts: derived.bgAgentStartTimes,
+          origin: src.origin,
+          terminal: derived.terminal === "unknown" ? normaliseTerm(raw.terminal) : derived.terminal,
+          transcriptPath,
+          launchId: derived.launchId ?? raw.launchId,
+        });
+      }),
+  );
+  return out;
+}
+
+/** Read only the Claude sources. Provider adapters own the public boundary;
+ * this function keeps the existing source/cache implementation private to the
+ * session reader while the registry remains provider-neutral. */
+export async function readClaudeSessions(): Promise<SessionInfo[]> {
+  const results = await Promise.all(
+    SESSION_SOURCES.filter((src) => src.provider === "claude").map((src) => readOneSource(src)),
+  );
+  return results.flat();
+}
+
+/** Read only the Codex bridge sources. An absent Codex directory is a normal
+ * first-run state and is handled by the source reader. */
+export async function readCodexSessions(): Promise<SessionInfo[]> {
+  const results = await Promise.all(
+    SESSION_SOURCES.filter((src) => src.provider === "codex").map((src) => readOneCodexSource(src)),
+  );
+  return results.flat();
+}
+
+/** Reads all registered provider sources. Stale (dead-pid) files are still
+ * returned; liveness filtering happens upstream. Naming and cache cleanup stay
+ * here because they are shared experience rules, not provider mechanics. */
+export async function readAllSessions(
+  providers: readonly Pick<AgentProvider, "readSessions">[],
+): Promise<SessionInfo[]> {
   lastReadError = undefined;
-  const results = await Promise.all(SESSION_SOURCES.map(readOneSource));
-  const sessions = results.flat();
+  const results = await Promise.all(providers.map((provider) => provider.readSessions()));
+  const sessions = results.flat() as unknown as SessionInfo[];
 
   // Deck names: apply each session's one-time word as its label; sessions
   // that have context but no word yet get a (deduped, fire-and-forget)
   // naming call. The word never changes once assigned.
+  // Both providers are named from the same word pool. Codex used to be excluded
+  // here, which left it with no deck word, no word in its tab title, and a
+  // cwd-basename label — three visible differences for no reason. Sharing the
+  // pool also keeps words unique ACROSS providers, which matters because the
+  // words are what the user says out loud to mean a particular session.
   const words = await Promise.all(sessions.map((s) => assignedName(s.sessionId)));
   const taken = words.filter(Boolean);
   const liveSids: ReadonlySet<string> = new Set(sessions.map((s) => s.sessionId));
@@ -273,21 +484,49 @@ export async function readAllSessions(): Promise<SessionInfo[]> {
       maybeName({ sessionId: s.sessionId, firstPrompt: s.firstPrompt, title: s.title, takenWords: taken, liveSids });
     }
   });
+  // Owner links for bg jobs, resolved AFTER naming: the owner's canonical tab
+  // title embeds its deck word, and the press matches that title exactly.
+  const owners = resolveBgOwners(sessions);
+  const byId = new Map(sessions.map((s) => [s.sessionId, s]));
+  for (const s of sessions) {
+    if (s.kind !== "bg") continue;
+    const owner = byId.get(owners.get(s.sessionId) ?? "");
+    if (!owner) {
+      s.owner = undefined;
+      continue;
+    }
+    s.owner = {
+      cwd: owner.cwd,
+      terminal: owner.terminal,
+      origin: owner.origin,
+      pid: owner.pid,
+      canonicalTitle: canonicalTabTitle(owner),
+    };
+  }
   // Prune cache entries whose session is gone (SessionEnd unlinked the log, or
   // the .json disappeared) so the maps stay bounded by live-session count.
   const expectedLogs = new Set<string>();
   const expectedJson = new Set<string>();
   for (const s of sessions) {
-    const src = SESSION_SOURCES.find((d) => d.origin === s.origin);
+    const src = SESSION_SOURCES.find((d) => d.origin === s.origin && d.provider === s.provider);
     if (!src) continue;
     expectedLogs.add(join(src.path, `${s.sessionId}.events.ndjson`));
-    expectedJson.add(join(src.path, `${s.pid}.json`));
+    if (s.provider === "claude" && s.pid !== undefined) expectedJson.add(join(src.path, `${s.pid}.json`));
   }
   for (const key of eventLogCache.keys()) {
     if (!expectedLogs.has(key)) eventLogCache.delete(key);
   }
   for (const key of jsonCache.keys()) {
     if (!expectedJson.has(key)) jsonCache.delete(key);
+  }
+  const expectedCodexJson = new Set(
+    sessions.filter((s) => s.provider === "codex").map((s) => {
+      const src = SESSION_SOURCES.find((d) => d.origin === s.origin && d.provider === s.provider);
+      return src ? join(src.path, `${s.sessionId}.json`) : "";
+    }),
+  );
+  for (const key of codexJsonCache.keys()) {
+    if (!expectedCodexJson.has(key)) codexJsonCache.delete(key);
   }
   return sessions;
 }
@@ -299,8 +538,10 @@ export async function readAllSessions(): Promise<SessionInfo[]> {
  *  every interactive session whose process is no longer live and whose file is
  *  older than PRUNE_GRACE_MS, bounding `~/.claude/sessions/` to live + just-died
  *  sessions instead of letting dead files pile up unread-but-re-stat'd forever.
- *  bg sessions are skipped: their PID is a shared daemon, so the file↔process
- *  mapping the rest of this assumes doesn't hold. Best-effort — every unlink
+ *  bg jobs are pruned too: a CLAIMED job's <pid>.json names its own dedicated
+ *  `claude.exe` process, not the shared --bg-spare daemon the old exclusion was
+ *  written for, so the file↔process mapping holds there as well. Best-effort —
+ *  every unlink
  *  error is swallowed and simply retried next tick. Returns the count removed. */
 export async function pruneDeadSessions(
   sessions: SessionInfo[],
@@ -310,11 +551,11 @@ export async function pruneDeadSessions(
   let pruned = 0;
   await Promise.all(
     sessions
-      .filter((s) => s.kind !== "bg" && !liveIds.has(s.sessionId))
+      .filter((s) => !liveIds.has(s.sessionId))
       .map(async (s) => {
-        const src = SESSION_SOURCES.find((d) => d.origin === s.origin);
+        const src = SESSION_SOURCES.find((d) => d.origin === s.origin && d.provider === s.provider);
         if (!src) return;
-        const jsonPath = join(src.path, `${s.pid}.json`);
+        const jsonPath = join(src.path, s.provider === "codex" ? `${s.sessionId}.json` : `${s.pid}.json`);
         try {
           const st = await stat(jsonPath);
           if (now - st.mtimeMs < PRUNE_GRACE_MS) return; // too fresh to be sure it's dead junk
@@ -338,6 +579,7 @@ export async function pruneDeadSessions(
         // reboots. Dormant sidecars age out via sidecarMaxAgeMs in the
         // orphan sweep below.
         jsonCache.delete(jsonPath);
+        codexJsonCache.delete(jsonPath);
         eventLogCache.delete(eventsPath);
       }),
   );
@@ -349,7 +591,7 @@ export async function pruneDeadSessions(
   // firing (crash, SIGKILL, bg agents). Event logs are grace-gated like the
   // main prune; .deckname files persist DECKNAME_MAX_AGE_MS so dormant
   // conversations stay resumable by name.
-  const sids = new Set(sessions.map((s) => s.sessionId));
+  const sids = new Set(sessions.map((s) => `${s.provider}:${s.sessionId}`));
   await Promise.all(
     SESSION_SOURCES.map(async (src) => {
       let entries: string[];
@@ -361,7 +603,7 @@ export async function pruneDeadSessions(
       await Promise.all(
         entries
           .map((f) => f.match(/^(.+?)\.(events\.ndjson|deckname)$/))
-          .filter((m): m is RegExpMatchArray => m !== null && !sids.has(m[1]))
+          .filter((m): m is RegExpMatchArray => m !== null && !sids.has(`${src.provider}:${m[1]}`))
           .map(async (m) => {
             const p = join(src.path, m[0]);
             try {
@@ -393,9 +635,10 @@ export async function pruneDeadSessions(
 export async function wipeSessionEventLog(
   sessionId: string,
   origin: SessionOrigin,
+  provider: SessionProvider = "claude",
 ): Promise<{ wiped: boolean; error?: string }> {
-  const src = SESSION_SOURCES.find((s) => s.origin === origin);
-  if (!src) return { wiped: false, error: `no source for origin=${origin}` };
+  const src = SESSION_SOURCES.find((s) => s.origin === origin && s.provider === provider);
+  if (!src) return { wiped: false, error: `no source for ${provider}/${origin}` };
   const path = join(src.path, `${sessionId}.events.ndjson`);
   try {
     const first = (await readFile(path, "utf8")).split("\n", 1)[0] ?? "";
@@ -421,7 +664,8 @@ export async function wipeAllEventLogs(): Promise<{ wiped: number; errors: strin
       try {
         entries = await readdir(src.path);
       } catch (err) {
-        errors.push(`${src.origin}: ${err instanceof Error ? err.message : String(err)}`);
+        if ((err as NodeJS.ErrnoException)?.code === "ENOENT" && src.provider === "codex") return;
+        errors.push(`${src.provider}/${src.origin}: ${err instanceof Error ? err.message : String(err)}`);
         return;
       }
       const targets = entries.filter((f) => f.endsWith(".events.ndjson"));
@@ -431,7 +675,7 @@ export async function wipeAllEventLogs(): Promise<{ wiped: number; errors: strin
             await unlink(join(src.path, f));
             wiped++;
           } catch (err) {
-            errors.push(`${src.origin}/${f}: ${err instanceof Error ? err.message : String(err)}`);
+            errors.push(`${src.provider}/${src.origin}/${f}: ${err instanceof Error ? err.message : String(err)}`);
           }
         }),
       );
@@ -451,11 +695,17 @@ export async function wipeAllEventLogs(): Promise<{ wiped: number; errors: strin
  *  interactiveState — pure and unit-tested there (this module sits behind the
  *  SDK import chain). Its doc comment carries the busy/waiting/idle
  *  rationale, including why an interrupt's stale flags must read idle. */
-export function deriveState(s: SessionInfo, alive: boolean): SessionState {
+export function deriveState(s: SessionInfo, alive: boolean, parkedState?: SessionState): SessionState {
   if (!alive) return "finished";
   if (s.kind === "bg") return deriveBgState(s);
   if (s.errored) return "error";
-  return interactiveState(s.rawStatus, s);
+  const own = interactiveState(s.rawStatus, s);
+  // A session that parked a job reports `idle` truthfully — its own turn loop
+  // is not running — but its WORK is in flight on a bg tile the user cannot
+  // reach. Adopt that activity here so the reachable key is the one that shows
+  // it. Only over `idle`: the session's own turn always outranks a delegate's.
+  if (own === "idle" && parkedState !== undefined) return adoptParkedState(parkedState);
+  return own;
 }
 
 /** Mappe le json d'un agent bg vers un état bg_*. Table best-effort (un seul

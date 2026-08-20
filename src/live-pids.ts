@@ -29,21 +29,12 @@ const cache: Record<SessionOrigin, OriginCache> = {
   windows: { lastLive: new Set(), lastLiveAt: 0 },
 };
 
-/** Un agent bg compte comme vivant tant que son json a été rafraîchi récemment.
- *  Généreux exprès : un job bg silencieux mais vivant ne doit pas disparaître.
- *  Tunable. */
-const FRESH_MS = 90_000;
 /** Statuts bg considérés comme terminaux → le job est fini, on le retire.
  *  Best-effort (cf. spec §6) ; à confirmer en observant d'autres jobs. */
 const TERMINAL_BG_STATUS = new Set(["completed", "failed", "cancelled", "done"]);
 
-/** Liveness d'une session bg, sans toucher au PID (daemon --bg-spare partagé) :
- *  fraîcheur de updatedAt ET statut non-terminal. */
-function bgAlive(s: SessionInfo, now: number): boolean {
-  if (s.updatedAt == null) return false;
-  if (now - s.updatedAt >= FRESH_MS) return false;
-  return !TERMINAL_BG_STATUS.has((s.bgStatus ?? "").toLowerCase());
-}
+const isTerminalBgStatus = (status: string | undefined): boolean =>
+  TERMINAL_BG_STATUS.has((status ?? "").toLowerCase());
 
 async function checkWslLive(pids: number[]): Promise<{ live: Set<number>; error?: string; fromCache: boolean }> {
   if (pids.length === 0) return { live: new Set(), fromCache: false };
@@ -131,12 +122,18 @@ export interface LivenessResult {
 }
 
 export async function filterLiveSessions(sessions: SessionInfo[]): Promise<LivenessResult> {
-  const now = Date.now();
-  // Les bg ne passent pas par le check PID : leur PID est un daemon partagé.
-  // Seules les interactives alimentent les checks wsl/windows.
+  // Every session with a pid goes through the same `kill -0`, bg included. The
+  // old exclusion assumed a bg job's pid was the shared --bg-spare daemon; it
+  // is not — a CLAIMED job runs as its own dedicated `claude.exe`. Judging bg
+  // liveness by json freshness instead made a working job flap on and off the
+  // deck, because a busy job stops rewriting its json (observed 2026-08-19:
+  // `sessions=9 live=9` → `live=8` with nothing having died).
   const byOrigin: Record<SessionOrigin, number[]> = { wsl: [], windows: [] };
   for (const s of sessions) {
-    if (s.kind !== "bg") byOrigin[s.origin].push(s.pid);
+    // Both providers: the Codex bridge now records the real codex pid, so its
+    // liveness is the same `kill -0` question as Claude's rather than a
+    // self-reported flag.
+    if (s.pid !== undefined) byOrigin[s.origin].push(s.pid);
   }
 
   const [wslRes, winRes] = await Promise.all([
@@ -147,11 +144,26 @@ export async function filterLiveSessions(sessions: SessionInfo[]): Promise<Liven
   const live = new Set<string>();
   for (const s of sessions) {
     if (s.kind === "bg") {
-      if (bgAlive(s, now)) live.add(s.sessionId);
+      // Pid check AND a non-terminal status: a job reporting itself completed
+      // is done even while its process is still winding down.
+      const livePids = s.origin === "wsl" ? wslRes.live : winRes.live;
+      if (s.pid !== undefined && livePids.has(s.pid) && !isTerminalBgStatus(s.bgStatus)) {
+        live.add(s.sessionId);
+      }
       continue;
     }
-    const livePids = s.origin === "wsl" ? wslRes.live : winRes.live;
-    if (livePids.has(s.pid)) live.add(s.sessionId);
+    if (s.pid !== undefined) {
+      // Identical treatment for both providers.
+      const livePids = s.origin === "wsl" ? wslRes.live : winRes.live;
+      if (livePids.has(s.pid)) live.add(s.sessionId);
+      continue;
+    }
+    // No pid: only reachable for a Codex session whose hook found no codex
+    // ancestor to attribute. Fall back to the bridge's own flag, which
+    // SessionEnd clears. Weaker than a pid check — a hard-killed session with
+    // no SessionEnd lingers until its record is pruned — but it is strictly
+    // better than dropping a live session off the deck.
+    if (s.provider === "codex" && s.active !== false) live.add(s.sessionId);
   }
 
   const errors = [wslRes.error, winRes.error].filter(Boolean) as string[];

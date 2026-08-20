@@ -9,6 +9,11 @@ import {
   type SessionInfo,
 } from "./sessions.js";
 import { filterLiveSessions } from "./live-pids.js";
+import { resolveParkedJobs } from "./bg-owner.js";
+import { readProvisionalSessions } from "./provisional-sessions.js";
+import { KillSuppression } from "./kill-suppression.js";
+import { ProviderRegistry } from "./provider-registry.js";
+import { createBuiltinProviders } from "./providers/index.js";
 
 const FINISHED_TTL_MS = 3_000;
 
@@ -55,7 +60,9 @@ export interface DisplayEntry {
  * for FINISHED_TTL_MS after their process exits. Pure given inputs (sessions,
  * live PIDs, now) but mutates its private maps to track transitions.
  */
-export function createStateTracker() {
+export function createStateTracker(
+  providerRegistry = new ProviderRegistry(createBuiltinProviders()),
+) {
   /** Carry-over map keyed by sessionId so a session stays visible briefly after its process dies. */
   const recentlyFinished = new Map<string, DisplayEntry>();
   /** Sessions seen alive in the previous tick — used to detect "just died" transitions. */
@@ -69,6 +76,8 @@ export function createStateTracker() {
    *  re-arms once RENAG_AFTER_MS has passed. `armedAt` anchors the
    *  time-based mute below. */
   const owed = new Map<string, { snoozedAt?: number; nags: number; muted?: boolean; armedAt: number }>();
+  /** Sessions the user killed with a 3 s hold — off the deck immediately. */
+  const killed = new KillSuppression();
 
   let lastDiag = "";
   function maybeLog(msg: string): void {
@@ -86,7 +95,12 @@ export function createStateTracker() {
    * `getEntries()` and `needsAnimation()`.
    */
   async function tick(actionCount: number): Promise<DisplayEntry[]> {
-    const sessions = await readAllSessions();
+    const providers = providerRegistry.ids().map((id) => providerRegistry.get(id));
+    const recorded = await readAllSessions(providers);
+    // An agent that is running but has not written a record yet still gets a
+    // tile. Appended AFTER readAllSessions so none of its file bookkeeping —
+    // naming, cache pruning, dead-file sweeps — ever sees a session with no files.
+    const sessions = [...recorded, ...(await readProvisionalSessions(recorded))];
     const livenessResult = await filterLiveSessions(sessions);
     const live = livenessResult.live;
     const sourceList = SESSION_SOURCES.map((s) => s.origin).join("+");
@@ -98,9 +112,22 @@ export function createStateTracker() {
         (lastReadError ? ` readError=${lastReadError}` : ""),
     );
 
+    // A session that parked a job shows its DELEGATE's activity, so the tile the
+    // user can actually press is the one that lights up. Only LIVE bg jobs feed
+    // this: a dead job's last known status is not activity, and adopting it
+    // would leave an owner tile working forever behind a job that already exited.
+    const parkedJobs = resolveParkedJobs(sessions);
+    const bgStateBySid = new Map<string, SessionState>();
+    for (const s of sessions) {
+      if (s.kind === "bg" && live.has(s.sessionId)) bgStateBySid.set(s.sessionId, deriveState(s, true));
+    }
     const liveEntries: DisplayEntry[] = sessions
       .filter((s) => live.has(s.sessionId))
-      .map((session) => ({ session, state: deriveState(session, true) }));
+      .map((session) => {
+        const bgSid = parkedJobs.get(session.sessionId);
+        const parkedState = bgSid === undefined ? undefined : bgStateBySid.get(bgSid);
+        return { session, state: deriveState(session, true, parkedState) };
+      });
 
     // Attention bookkeeping. Arm on busy → needs-you. A reply (session goes
     // busy again) is the ONLY thing that clears it — a slot press merely
@@ -144,6 +171,8 @@ export function createStateTracker() {
     const liveIds = new Set(liveEntries.map((e) => e.session.sessionId));
     for (const session of sessions) {
       if (prevLiveIds.has(session.sessionId) && !liveIds.has(session.sessionId) && !recentlyFinished.has(session.sessionId)) {
+        // A death the user ordered needs no 3 s explanation — the hold was it.
+        if (killed.claimDeath(session.sessionId)) continue;
         recentlyFinished.set(session.sessionId, { session, state: "finished", finishedAt: Date.now() });
       }
     }
@@ -169,13 +198,21 @@ export function createStateTracker() {
     // outage (their mtimes are hours old, so the grace window is no shield).
     let pruned = 0;
     if (!livenessResult.error && !livenessResult.fromCache) {
-      pruned = await pruneDeadSessions(sessions, live, Date.now());
+      // `recorded`, never `sessions`: a provisional session has no files, so the
+      // sweep would resolve its synthetic id against a real source directory.
+      pruned = await pruneDeadSessions(recorded, live, Date.now());
     }
     if (pruned > 0) streamDeck.logger.info(`pruned ${pruned} dead session file(s)`);
 
-    cachedEntries = [...liveEntries, ...recentlyFinished.values()].sort(
-      (a, b) => a.session.startedAt - b.session.startedAt,
-    );
+    // A killed session is dropped from DISPLAY while its process finishes
+    // exiting, but stays in `liveIds` above — that set is the liveness truth the
+    // rest of the tick reasons about, and faking a death there would send the
+    // session through the finished-promotion path this suppression exists to skip.
+    killed.prune(now);
+    cachedEntries = [
+      ...liveEntries.filter((e) => !killed.suppresses(e.session, now)),
+      ...recentlyFinished.values(),
+    ].sort((a, b) => a.session.startedAt - b.session.startedAt);
     return cachedEntries;
   }
 
@@ -219,5 +256,11 @@ export function createStateTracker() {
     }
   }
 
-  return { tick, getEntries, needsAnimation, acknowledge, dismiss };
+  /** The kill signal was delivered — take the tile down now, and skip the
+   *  `finished` flash when the process actually goes. */
+  function markKilled(sessionId: string, pid?: number): void {
+    killed.mark({ sessionId, pid });
+  }
+
+  return { tick, getEntries, needsAnimation, acknowledge, dismiss, markKilled };
 }

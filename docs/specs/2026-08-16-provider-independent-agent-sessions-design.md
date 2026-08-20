@@ -1,5 +1,15 @@
 # Provider-Independent Agent Sessions
 
+> **Superseded in part, 2026-08-17** (same-day, by Ehsan): sections 2 ("Declarative
+> gesture configuration"), 3's launch-command handling, and 4 ("provider-neutral
+> pending state" rendering a mascot) no longer describe the system. A slot key
+> opens ONE bare Ghostty tab; the user types `claude`, `codex`, or anything else;
+> the pressed key is held quietly for 2 minutes and claimed by whichever agent
+> registers with the exported launch id. No gesture chooses a provider, so
+> `AgentProvider` has no `launch` member. The provider registry, adapters,
+> normalized sessions, and launch-id correlation (sections 1 and 5) are current.
+> Live contract: `CLAUDE.md`, "A free slot opens a tab, it does not start an agent".
+
 ## Problem
 
 Claude's current Stream Deck workflow is the reference experience: a gesture

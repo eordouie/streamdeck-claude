@@ -149,9 +149,12 @@ type Mascot = {
    *  the same ground however small its members are. */
   foot: number;
   /** Baby sprite for the `subagent` family, when a small copy of `draw`
-   *  wouldn't read as the same animal's young. A baby elephant is believably
-   *  just a small elephant; a baby hen is a chick, not a tiny hen with a comb
-   *  and wattle — those need their own draw function. Defaults to `draw`. */
+   *  wouldn't read as the same animal's young — a hatchling with an adult's
+   *  full markings reads as "shrunk in a wash", not "young". No mascot needs
+   *  one right now (every current baby is believably just a small copy of
+   *  its parent, the elephant and llama's included), but the hen/chick and
+   *  cat/kitten pairs both needed it before those animals were replaced —
+   *  keep the field for whichever mascot needs it next. Defaults to `draw`. */
   drawBaby?: (frame: number, blinkPhaseMs: number) => string;
 };
 
@@ -161,7 +164,7 @@ const MASCOTS: Mascot[] = [
   { draw: sauropodIdleLook, dir: -1, foot: 95 },
   { draw: gooseIdleLook, dir: 1, foot: 95 },
   { draw: elephantIdleLook, dir: -1, foot: 95 },
-  { draw: henIdleLook, dir: -1, foot: 95, drawBaby: chickIdleLook },
+  { draw: stegoIdleLook, dir: -1, foot: 95 },
   { draw: llamaIdleLook, dir: -1, foot: 95 },
   { draw: pandaIdleLook, dir: -1, foot: 95 },
 ];
@@ -503,88 +506,103 @@ ${trunk}
 </g>`;
 }
 
-/** A round white hen in left-facing profile. Rebuilt from scratch after two
- *  earlier attempts both read as ugly: both tried to fake a smooth oval out
- *  of many stacked rows of slightly different widths, and at this pixel
- *  budget that reads as a lumpy staircase, not "round" — the opposite of
- *  the intended effect. Every OTHER mascot in this file that reads as round
- *  and cute (elephant, dino, the chick) uses one or two flat rectangles for
- *  its body, not a taper. This hen now does the same: one body block plus
- *  one smaller head block offset above-and-forward of it, exactly the
- *  elephant's technique. Facial detail is deliberately sparse — comb, one
- *  eye, a beak, a small blush — because the earlier attempts' clutter of
- *  competing small shapes was as much the problem as the lumpy body. */
-function henIdleLook(frame: number, blinkPhaseMs: number): string {
+/** A stegosaurus in left-facing profile — replaces the cat entirely (see
+ *  LESSONS.md): the hen went through four rejected rebuilds, the cat went
+ *  through two (ginger, then beige) and was still rejected, so this is a
+ *  second animal-swap rather than a third cat rebuild. The iconic silhouette
+ *  carries almost all of the "cute" here — a fat round body, a low snout, a
+ *  tapering row of plates (the "corrugated back"), a tail ending in the
+ *  famous thagomizer spikes. v2 pushed it toward more anatomical accuracy
+ *  once the silhouette itself was confirmed to land: six plates instead of
+ *  five with a spine-ridge shadow to ground them, sturdier columnar legs
+ *  (the back pair noticeably taller AND thicker than the front, matching how
+ *  the real animal stood with its hips higher than its shoulders) with
+ *  visible feet instead of bare shank rectangles, a thicker tail carrying the
+ *  full four-spike thagomizer (a near pair plus a shaded far pair, same
+ *  depth trick as the panda's far ear), and a longer snout with a nostril and
+ *  a small horn-coloured beak tip. v3 rounded out the torso: what was one
+ *  flat rectangle is now a three-row taper (a narrow shoulder cap under the
+ *  ridge, a wider bulging middle, a narrow belly-underside cap) at the same
+ *  y-bounds as before, so legs/tail/head/plates never needed to move — a
+ *  barrel cross-section instead of a box reads as chubbier without any of
+ *  the "many thin rows" lumpiness that sank the early hen rebuilds. Detail
+ *  stays otherwise sparse — same discipline that worked for the
+ *  dino/sauropod/elephant. No custom baby sprite: a small stegosaurus with
+ *  smaller plates reads fine as a scaled-down parent, the same way the
+ *  elephant and llama's babies do. */
+function stegoIdleLook(frame: number, blinkPhaseMs: number): string {
   const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
   const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
-  const c = "#ffffff";
-  const shade = "#e2e2e2";
-  const comb = "#ff3b30";
-  const bill = "#ffb020";
-  const foot = "#f0993f";
-  const blush = "#ffb0c0";
+  const c = "#8a9a6b";
+  const ridge = "#71805a";
+  const belly = "#e4ddbc";
+  const plate = "#c76b3f";
+  const plateShade = "#a8542f";
+  const spikeFar = "#8a4526";
+  const foot = "#5f6b47";
+  const nostril = "#3e4530";
   const stepA = Math.floor(frame / 3) % 2 === 0;
-  const leg = (x: number, planted: boolean) =>
-    `<rect x="${x}" y="11" width="1" height="${planted ? 2 : 1}" fill="${foot}"/>
-<rect x="${x - 1}" y="${planted ? 13 : 12}" width="2" height="1" fill="${foot}"/>`;
-  const legs = stepA ? leg(5, true) + leg(9, false) : leg(5, false) + leg(9, true);
+  // Legs tuck one unit under the body (y=8/9 against a belly that ends at
+  // y=9.5) so the bob can't open a seam, same rule as every other mascot
+  // here. Back legs stand taller AND thicker than the front pair — the
+  // hips-higher-than-shoulders stance that reads as "real stegosaurus"
+  // rather than an even-legged toy.
+  const legF = stepA
+    ? `<rect x="4" y="9" width="2.2" height="4" fill="${c}"/><rect x="3.6" y="12.6" width="3" height="1" fill="${foot}"/>`
+    : `<rect x="4" y="9" width="2.2" height="3" fill="${c}"/><rect x="3.6" y="11.6" width="3" height="1" fill="${foot}"/>`;
+  const legB = stepA
+    ? `<rect x="10" y="8" width="2.6" height="5" fill="${c}"/><rect x="9.5" y="12.6" width="3.5" height="1" fill="${foot}"/>`
+    : `<rect x="10" y="8" width="2.6" height="4" fill="${c}"/><rect x="9.5" y="11.6" width="3.5" height="1" fill="${foot}"/>`;
   const bob = stepA ? "0" : "-0.5";
-  // Tail lifts on the offbeat, same wag trick as the sauropod and elephant —
-  // one rect, not a base-plus-tip pair, matching the rest of the redesign's
-  // restraint.
-  const tailH = stepA ? 5 : 6;
-  return `<g transform="translate(40 35) scale(4)">
-<rect x="1" y="15" width="14" height="1" fill="#000" opacity="0.45"/>
-${legs}
+  // Full thagomizer: a bold near pair plus a shaded, offset-back far pair —
+  // same touching-segments rule as every other tail in this file so nothing
+  // floats free of the tail base.
+  const tailShift = stepA ? 0 : 0.5;
+  const spikes = `
+<rect x="13.6" y="${8.2 - tailShift}" width="1" height="1.6" fill="${spikeFar}"/>
+<rect x="14.3" y="${9.4 - tailShift}" width="1" height="1.6" fill="${spikeFar}"/>
+<rect x="13.2" y="${6.8 - tailShift}" width="1.3" height="1.7" fill="${plate}"/>
+<rect x="13.2" y="${8.4 - tailShift}" width="1.3" height="1.7" fill="${plate}"/>`;
+  // Six plates, tallest at the shoulders and tapering toward the head and
+  // tail — the recognisable "corrugated back" silhouette, plus a thin darker
+  // ridge along the spine so the row reads as mounted on the back rather
+  // than floating just above it.
+  const plateRow = [
+    { x: 3.3, h: 1.8 },
+    { x: 4.9, h: 2.8 },
+    { x: 6.5, h: 3.6 },
+    { x: 8.1, h: 3.6 },
+    { x: 9.7, h: 2.8 },
+    { x: 11.1, h: 1.8 },
+  ]
+    .map(
+      (p) =>
+        `<rect x="${p.x}" y="${6 - p.h}" width="1.4" height="${p.h}" fill="${plate}"/>` +
+        `<rect x="${p.x}" y="${6 - p.h}" width="1.4" height="0.6" fill="${plateShade}"/>`
+    )
+    .join("");
+  return `<g transform="translate(37 32) scale(4.2)">
+<rect x="2" y="14" width="13" height="1" fill="#000" opacity="0.4"/>
+${legF}
+${legB}
 <g transform="translate(0 ${bob})">
-<g transform="translate(7 7) scale(1 ${breatheY}) translate(-7 -7)">
-<rect x="12" y="${11 - tailH}" width="2" height="${tailH}" fill="${shade}"/>
-<rect x="3" y="6" width="10" height="5" fill="${c}"/>
-<rect x="4" y="9" width="7" height="2" fill="${shade}"/>
-<rect x="1" y="2" width="7" height="6" fill="${c}"/>
-<rect x="1" y="6" width="2" height="2" fill="${blush}"/>
-<rect x="0" y="4" width="1" height="2" fill="${bill}"/>
-<rect x="0" y="6" width="1" height="1" fill="${comb}"/>
-<rect x="3" y="0" width="1" height="2" fill="${comb}"/>
-<rect x="4" y="1" width="1" height="1" fill="${comb}"/>
-<rect x="5" y="0" width="1" height="2" fill="${comb}"/>
-<g transform="translate(3 4) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-3 -4)">
-<rect x="2" y="3" width="2" height="2" fill="#000"/>
-<rect x="3" y="3" width="1" height="1" fill="#fff"/>
-</g>
-</g>
-</g>
-</g>`;
-}
-
-/** A round fluffy chick — the hen's `subagent` baby. Not a scaled-down hen: a
- *  chick has no comb or wattle and is a different colour entirely, so reusing
- *  `henIdleLook` at BABY_SCALE would read as a hen shrunk in a wash, not a
- *  chick. Same shadow-at-y=15 convention as every other mascot, so the
- *  family's shared foot line still lines it up with its mother. */
-function chickIdleLook(frame: number, blinkPhaseMs: number): string {
-  const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
-  const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
-  const breatheY = (1 - 0.02 * breatheTri).toFixed(3);
-  const c = "#fde047";
-  const shade = "#eab308";
-  const bill = "#f97316";
-  const stepA = Math.floor(frame / 3) % 2 === 0;
-  const leg = (x: number, planted: boolean) => `<rect x="${x}" y="12" width="1" height="${planted ? 2 : 1}" fill="${bill}"/>`;
-  const legs = stepA ? leg(4, true) + leg(7, false) : leg(4, false) + leg(7, true);
-  const bob = stepA ? "0" : "-0.5";
-  return `<g transform="translate(48 35) scale(4)">
-<rect x="2" y="15" width="6" height="1" fill="#000" opacity="0.45"/>
-${legs}
-<g transform="translate(0 ${bob})">
-<g transform="translate(4.5 10) scale(1 ${breatheY}) translate(-4.5 -10)">
-<rect x="1" y="7" width="1" height="2" fill="${shade}"/>
-<rect x="1" y="5" width="7" height="6" fill="${c}"/>
-<rect x="0" y="6" width="1" height="2" fill="${bill}"/>
-<rect x="2" y="4" width="3" height="1" fill="${c}"/>
-<g transform="translate(2 7) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-2 -7)">
-<rect x="1" y="6" width="1" height="1" fill="#000"/>
+<g transform="translate(6 7) scale(1 ${breatheY}) translate(-6 -7)">
+<rect x="12.2" y="7.3" width="1.6" height="2" fill="${c}"/>
+${spikes}
+<rect x="3" y="6" width="9" height="1" fill="${c}"/>
+<rect x="3" y="6" width="9" height="0.5" fill="${ridge}"/>
+<rect x="1.3" y="7" width="12.4" height="3" fill="${c}"/>
+<rect x="3" y="10" width="9" height="1" fill="${c}"/>
+<rect x="2.3" y="8.2" width="8.4" height="2.6" fill="${belly}"/>
+${plateRow}
+<rect x="-2" y="7.7" width="4" height="2.8" fill="${c}"/>
+<rect x="-2" y="8.8" width="3" height="1.4" fill="${belly}"/>
+<rect x="-2.3" y="8.4" width="0.8" height="0.8" fill="${plate}"/>
+<rect x="-1.6" y="8" width="0.6" height="0.6" fill="${nostril}"/>
+<g transform="translate(1 8.8) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-1 -8.8)">
+<rect x="0.2" y="8" width="1.6" height="1.6" fill="#1c1c22"/>
+<rect x="1.1" y="8.1" width="0.5" height="0.5" fill="#fff"/>
 </g>
 </g>
 </g>
@@ -640,16 +658,14 @@ ${mouth}
 </g>`;
 }
 
-/** A round panda in left-facing profile — two capped ears, one big eye patch
- *  with a white catchlight, and the shoulder band running down into the front
- *  leg. The white coat carries the silhouette, so the black only has to
- *  survive the four edges it owns: the two ears, the leading leg, and the
- *  rump. Those are a lifted charcoal with a rim light along whatever they show
- *  to the key background — true black on a #0f1115 tile is a panda-shaped
- *  hole, which is precisely how the bear this replaces first read. The eye is
- *  the same trap one size down: a pupil inside a black patch is invisible, so
- *  the eye IS the catchlight, and the blink closes the white rather than the
- *  black. */
+/** A round panda in left-facing profile. The chibi/sitting direction (see
+ *  git history and LESSONS.md) was explored across a contact-sheet review
+ *  and even iterated on, but on reflection this side-profile original —
+ *  cream body carrying the silhouette, black kept to the four spots that
+ *  read as "panda" (ears, eye patches, front leg + shoulder band, rear leg),
+ *  a lifted charcoal with a rim light rather than true black so it doesn't
+ *  read as a panda-shaped hole against the #0f1115 tile — is the one that
+ *  stuck. Walks in a real stride rather than waddling in place. */
 function pandaIdleLook(frame: number, blinkPhaseMs: number): string {
   const breathePhase = ((frame * 2) % ANIMATION_FRAMES) / ANIMATION_FRAMES;
   const breatheTri = breathePhase < 0.5 ? breathePhase * 2 : (1 - breathePhase) * 2;
@@ -657,11 +673,8 @@ function pandaIdleLook(frame: number, blinkPhaseMs: number): string {
   const c = "#f4f1e8";
   const shade = "#d2ccbe";
   const blk = "#3a3742";
-  // The far ear reads as further away by being a shade deeper with a dimmer
-  // rim — the only depth cue available in a flat side profile.
   const farBlk = "#2f2c38";
   const rim = "#6b6577";
-  const farRim = "#4c4757";
   const nose = "#211f27";
   const glint = "#fdfdff";
   const stepA = Math.floor(frame / 3) % 2 === 1;
@@ -679,34 +692,33 @@ function pandaIdleLook(frame: number, blinkPhaseMs: number): string {
     : leg(7, 7, false) + leg(12, 14, true);
   const bob = stepA ? "0" : "-0.5";
   // The head is most of this animal, so it nods a beat behind the shoulders.
-  // It is drawn after the body and overlaps it by five rows, so the nod slides
-  // the skull against the chest instead of opening a gap at the neck.
+  // It is drawn after the body and overlaps it by four rows, so the nod
+  // slides the skull against the chest instead of opening a gap at the neck.
   const nod = stepA ? "0" : "0.5";
   return `<g transform="translate(42 35) scale(4)">
 <rect x="1" y="15" width="13" height="1" fill="#000" opacity="0.45"/>
 ${legs}
 <g transform="translate(0 ${bob})">
 <g transform="translate(8 12) scale(1 ${breatheY}) translate(-8 -12)">
-<rect x="6" y="5" width="8" height="1" fill="${c}"/>
-<rect x="5" y="6" width="10" height="5" fill="${c}"/>
+<rect x="6" y="7" width="8" height="1" fill="${c}"/>
+<rect x="5" y="8" width="10" height="3" fill="${c}"/>
 <rect x="6" y="11" width="8" height="1" fill="${shade}"/>
 <rect x="12" y="10" width="3" height="2" fill="${blk}"/>
 <rect x="14" y="10" width="1" height="2" fill="${rim}"/>
-<rect x="7" y="5" width="3" height="7" fill="${blk}"/>
-<rect x="7" y="5" width="3" height="1" fill="${rim}"/>
+<rect x="7" y="7" width="3" height="5" fill="${blk}"/>
+<rect x="7" y="7" width="3" height="1" fill="${rim}"/>
 <g transform="translate(0 ${nod})">
-<rect x="1" y="2" width="3" height="2" fill="${farBlk}"/>
-<rect x="1" y="1" width="2" height="1" fill="${farRim}"/>
-<rect x="6" y="1" width="3" height="3" fill="${blk}"/>
-<rect x="6" y="0" width="2" height="1" fill="${rim}"/>
-<rect x="1" y="3" width="7" height="1" fill="${c}"/>
-<rect x="0" y="4" width="8" height="5" fill="${c}"/>
-<rect x="1" y="9" width="7" height="1" fill="${c}"/>
-<rect x="1" y="4" width="3" height="1" fill="${blk}"/>
-<rect x="1" y="5" width="4" height="2" fill="${blk}"/>
-<rect x="1" y="8" width="2" height="1" fill="${nose}"/>
-<g transform="translate(2.5 5.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-2.5 -5.5)">
-<rect x="2" y="5" width="1" height="1" fill="${glint}"/>
+<rect x="1" y="1" width="2" height="2" fill="${farBlk}"/>
+<rect x="1" y="0" width="1" height="1" fill="${farBlk}"/>
+<rect x="6" y="1" width="2" height="2" fill="${blk}"/>
+<rect x="6" y="0" width="1" height="1" fill="${blk}"/>
+<rect x="1" y="2" width="7" height="1" fill="${c}"/>
+<rect x="0" y="3" width="8" height="5" fill="${c}"/>
+<rect x="1" y="8" width="7" height="1" fill="${c}"/>
+<rect x="1" y="7" width="2" height="1" fill="${nose}"/>
+<rect x="5" y="5" width="2" height="2" fill="${blk}"/>
+<g transform="translate(6.5 5.5) scale(1 ${blinkScaleY(blinkPhaseMs)}) translate(-6.5 -5.5)">
+<rect x="6.3" y="5.2" width="0.6" height="0.6" fill="${glint}"/>
 </g>
 </g>
 </g>

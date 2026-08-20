@@ -85,6 +85,7 @@ PROMPT=""
 if [ "$EVENT" = "UserPromptSubmit" ]; then
   PROMPT="$(printf '%s' "$INPUT" | jq -r '(.prompt // "") | .[0:200]' 2>/dev/null || true)"
 fi
+LAUNCH_ID="${STREAMDECK_LAUNCH_ID:-}"
 
 # jq -nc builds the JSON so embedded quotes/backslashes in tool names can't
 # corrupt the line. Atomic single-write append (line is well under PIPE_BUF).
@@ -116,6 +117,7 @@ jq -nc \
   --arg term "$TERM_KIND" \
   --arg transcript "$TRANSCRIPT" \
   --arg prompt "$PROMPT" \
+  --arg launchId "$LAUNCH_ID" \
   --argjson todos "$TODOS_JSON" \
   '{ts: $ts, event: $event}
    | (if $tool       != ""   then . + {tool:       $tool}       else . end)
@@ -123,6 +125,7 @@ jq -nc \
    | (if $term       != ""   then . + {term:       $term}       else . end)
    | (if $transcript != ""   then . + {transcript: $transcript} else . end)
    | (if $prompt     != ""   then . + {prompt:     $prompt}     else . end)
+   | (if $launchId   != ""   then . + {launchId:   $launchId}   else . end)
    | (if $todos      != null then . + {todos:      $todos}      else . end)' \
   >> "$TARGET" \
   || printf '{"ts":%d,"event":"%s"}\n' "$TS_MS" "$EVENT" >> "$TARGET" \

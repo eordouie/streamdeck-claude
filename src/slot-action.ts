@@ -8,10 +8,13 @@ import streamDeck, {
   type KeyAction,
 } from "@elgato/streamdeck";
 import { platform } from "node:os";
-import type { SessionOrigin } from "./sessions.js";
+import type { SessionOrigin, SessionProvider } from "./sessions.js";
 import type { TerminalKind } from "./terminal-kind.js";
-import { focusTerminalForSession } from "./terminal-focus.js";
+import { focusTerminalForSession, type FocusTarget } from "./terminal-focus.js";
 import { spawnCapture } from "./spawn-capture.js";
+import type { LaunchSpec } from "./provider-types.js";
+import { buildLaunchCommand } from "./launch-command.js";
+import { PendingLaunches } from "./pending-launch.js";
 
 /** Hold ≥ this long → wipe just this agent's event log (palier 1). */
 export const LONG_PRESS_MS = 500;
@@ -28,17 +31,23 @@ export interface SlotState {
   /** Bound session — used by long-press to wipe just this agent's event log. */
   sessionId?: string;
   origin?: SessionOrigin;
+  provider?: SessionProvider;
   /** Terminal host of the bound session — drives slot-press focus dispatch. */
   terminal?: TerminalKind;
   /** Unique name stamped on this session's tab — focus matches it exactly. */
   canonicalTitle?: string;
   /** Bound session pid — required to kill the process on a ≥3s hold. */
   pid?: number;
+  /** Where a short press should land. Normally the bound session's own tab;
+   *  for a bg job — which has none — the tab of the interactive session that
+   *  parked it. undefined = nowhere to go, so the press says so. Posé chaque
+   *  tick par le render-loop. */
+  focusTarget?: FocusTarget;
   /** Wall-clock ms du début d'arming (≥LONG_PRESS_MS tenu). undefined = pas en
    *  arming. Lu par le render-loop pour dessiner l'anneau "KILL". */
   killArmingSince?: number;
-  /** False pour un agent bg : son PID est un daemon --bg-spare partagé, le tuer
-   *  flinguerait le daemon. Posé chaque tick par le render-loop. */
+  /** False quand la session n'expose pas de pid. Posé chaque tick par le
+   *  render-loop. Les agents bg SONT killable : leur pid est un process dédié. */
   killable?: boolean;
 }
 
@@ -57,10 +66,12 @@ export class SlotAction extends SingletonAction {
   private readonly emptyLaunching = new Set<string>();
 
   constructor(
-    private readonly resetSlot: (sessionId: string, origin: SessionOrigin) => Promise<void>,
-    private readonly killSlot: (pid: number, sessionId: string, origin: SessionOrigin) => Promise<void>,
+    private readonly resetSlot: (sessionId: string, origin: SessionOrigin, provider: SessionProvider) => Promise<void>,
+    private readonly killSlot: (pid: number, sessionId: string, origin: SessionOrigin, provider: SessionProvider) => Promise<void>,
     private readonly acknowledgeSlot: (sessionId: string) => void = () => {},
     private readonly dismissSlot: (sessionId: string) => void = () => {},
+    private readonly pendingLaunches: PendingLaunches = new PendingLaunches(),
+    private readonly requestRender: () => void = () => {},
   ) {
     super();
   }
@@ -91,31 +102,32 @@ export class SlotAction extends SingletonAction {
       clearTimeout(k);
       this.killTimers.delete(ev.action.id);
     }
+    this.pendingLaunches.fail(ev.action.id);
     streamDeck.logger.info(`willDisappear: id=${ev.action.id} total=${this.instances.size}`);
   }
 
   override onKeyDown(ev: KeyDownEvent): void {
     const slot = this.state.get(ev.action.id);
-    if (!slot?.clipboardPayload || !slot.sessionId || !slot.origin || slot.pid === undefined) {
-      // Empty slot: when the key carries emptyScript settings, a free slot
-      // doubles as a "new session" launcher; otherwise keep the "nothing to
-      // do here" alert. No timer armed either way, so KeyUp stays a no-op.
-      void this.runEmptyPress(ev);
+    if (!slot?.clipboardPayload || !slot.sessionId || !slot.origin) {
+      // Empty slot: a free key is a "new tab" launcher. One gesture, one
+      // meaning, so it fires here on KeyDown — the press cannot mean anything
+      // else, and there is no second gesture to disambiguate on release.
+      void this.openAgentTab(ev);
       return;
     }
     const id = ev.action.id;
     const sessionId = slot.sessionId;
     const origin = slot.origin;
     const pid = slot.pid;
-    // Un agent bg n'est pas killable (daemon partagé) : on garde le palier 1
-    // (wipe du log) mais ni l'anneau KILL ni le palier 2.
-    const killable = slot.killable === true;
+    // Sans pid on garde le palier 1 (wipe du log) mais ni l'anneau KILL ni le
+    // palier 2.
+    const killable = slot.killable === true && pid !== undefined;
     const wipeTimer = setTimeout(() => {
       this.pressTimers.delete(id);
       // Palier 1 atteint : wipe le log. L'anneau "KILL" ne s'arme que si un kill
       // peut effectivement suivre.
       if (killable) slot.killArmingSince = Date.now();
-      void this.runLongPress(ev, sessionId, origin);
+      void this.runLongPress(ev, sessionId, origin, slot.provider ?? "claude");
     }, LONG_PRESS_MS);
     this.pressTimers.set(id, wipeTimer);
     if (killable) {
@@ -124,7 +136,7 @@ export class SlotAction extends SingletonAction {
         // Garde killArmingSince posé pendant le kill pour que l'anneau s'affiche
         // plein (progress clampé à 1) le temps du SIGTERM, puis le libère — sinon
         // le dernier frame visible plafonne à ~0.95 avant de disparaître.
-        void this.runKill(ev, pid, sessionId, origin).finally(() => {
+        void this.runKill(ev, pid!, sessionId, origin, slot.provider ?? "claude").finally(() => {
           slot.killArmingSince = undefined;
         });
       }, KILL_PRESS_MS);
@@ -134,6 +146,8 @@ export class SlotAction extends SingletonAction {
 
   override async onKeyUp(ev: KeyUpEvent): Promise<void> {
     const id = ev.action.id;
+    // An empty key launched on KeyDown and armed no timers, so every branch
+    // below is a no-op for it.
     const wipeTimer = this.pressTimers.get(id);
     const killTimer = this.killTimers.get(id);
     if (wipeTimer) {
@@ -160,27 +174,40 @@ export class SlotAction extends SingletonAction {
     // Relâché après 3s → kill déjà fired, no-op.
   }
 
-  private async runEmptyPress(ev: KeyDownEvent): Promise<void> {
-    const { emptyScript, emptyArgs = [] } = ev.payload.settings as {
-      emptyScript?: string;
-      emptyArgs?: string[];
-    };
-    if (!emptyScript) {
+  /** Opens one bare agent tab and reserves this key for whatever agent the user
+   *  types in it. No agent is chosen here — that is the point. */
+  private async openAgentTab(ev: KeyDownEvent): Promise<void> {
+    const spec = (ev.payload.settings as { launch?: LaunchSpec }).launch;
+    if (!spec?.script) {
+      // A slot with no launch spec is a stale profile — apply-layout.sh has not
+      // run since the layout changed.
+      streamDeck.logger.error("empty-slot press: no launch spec in settings — re-run apply-layout.sh");
       await ev.action.showAlert();
       return;
     }
     if (this.emptyLaunching.has(ev.action.id)) return;
     this.emptyLaunching.add(ev.action.id);
+    // Reserve the key before the tab exists, so the session that eventually
+    // registers from it lands here rather than on the first free slot.
+    const launch = this.pendingLaunches.start(ev.action.id);
+    this.requestRender();
     try {
-      const r = await spawnCapture(emptyScript, emptyArgs, { timeoutMs: 15_000 });
+      // Log every launch, not just failures: the launcher can exit 0 having typed
+      // into the WRONG tab (the keystroke race in ghostty-new-agent.sh, see
+      // LESSONS.md), which is indistinguishable from "the key did nothing".
+      streamDeck.logger.info(`empty-slot launch: script=${spec.script} launchId=${launch.id}`);
+      const command = buildLaunchCommand(spec, launch.id);
+      const r = await spawnCapture(command.script, [], { timeoutMs: 15_000, env: command.env });
       const failed = r.err !== undefined || r.timedOut === true || r.code !== 0;
       if (failed) {
+        this.pendingLaunches.fail(ev.action.id);
+        this.requestRender();
         streamDeck.logger.error(
-          `empty-slot launch failed: err=${r.err ?? "none"} code=${r.code} timedOut=${r.timedOut === true} stderr=${r.stderr.trim()}`,
+          `empty-slot launch failed (${spec.script}): err=${r.err ?? "none"} code=${r.code} timedOut=${r.timedOut === true} stderr=${r.stderr.trim()}`,
         );
         await ev.action.showAlert();
       }
-      // Success feedback is the new tab itself (and the slot filling in).
+      // Success feedback is the new tab itself.
     } finally {
       this.emptyLaunching.delete(ev.action.id);
     }
@@ -198,13 +225,18 @@ export class SlotAction extends SingletonAction {
     if (slot?.sessionId) this.acknowledgeSlot(slot.sessionId);
     try {
       await copyToClipboard(cwd);
-      const res = await focusTerminalForSession({
-        cwd,
-        terminal: slot?.terminal ?? "unknown",
-        origin: slot?.origin ?? "wsl",
-        pid: slot?.pid,
-        canonicalTitle: slot?.canonicalTitle,
-      });
+      const target = slot?.focusTarget;
+      if (!target) {
+        // A bg job whose owning session is gone: no tab anywhere shows this
+        // agent. Say so at once instead of spending ~2s missing warp → vscode
+        // → ghostty in turn, which is what every press on a bg slot used to do.
+        streamDeck.logger.info(
+          `focus: no reachable tab for ${slot?.sessionId ?? "slot"} — bg job, owning session gone`,
+        );
+        await ev.action.showAlert();
+        return;
+      }
+      const res = await focusTerminalForSession(target);
       // No showOk here: landing on the tab (and the flash clearing) IS the
       // feedback — the green checkmark overlay just adds noise.
       // Pressing the key for a session you were ALREADY looking at means
@@ -214,7 +246,7 @@ export class SlotAction extends SingletonAction {
         this.dismissSlot(slot.sessionId);
       }
       streamDeck.logger.info(
-        `focus(${slot?.terminal ?? "unknown"}): ${res.reason}${res.alreadyFront ? " [already front → dismissed]" : ""} for cwd=${cwd}`,
+        `focus(${target.terminal}): ${res.reason}${res.alreadyFront ? " [already front → dismissed]" : ""} for cwd=${target.cwd}`,
       );
     } catch (err) {
       streamDeck.logger.error("clipboard copy failed", err);
@@ -226,9 +258,10 @@ export class SlotAction extends SingletonAction {
     ev: KeyDownEvent,
     sessionId: string,
     origin: SessionOrigin,
+    provider: SessionProvider,
   ): Promise<void> {
     try {
-      await this.resetSlot(sessionId, origin);
+      await this.resetSlot(sessionId, origin, provider);
       // Pendant l'armement du kill (cas normal d'un long-press), l'anneau rouge
       // sert de confirmation : on évite le flash vert showOk qui le masquerait
       // et laisserait croire que l'action est terminée.
@@ -245,10 +278,13 @@ export class SlotAction extends SingletonAction {
     pid: number,
     sessionId: string,
     origin: SessionOrigin,
+    provider: SessionProvider,
   ): Promise<void> {
     try {
-      await this.killSlot(pid, sessionId, origin);
-      await ev.action.showOk();
+      await this.killSlot(pid, sessionId, origin, provider);
+      // No showOk: the green checkmark covers the key for about a second, which
+      // is exactly the moment the tile is supposed to be seen going dark. The
+      // completed KILL ring was the confirmation; the empty slot is the result.
     } catch (err) {
       streamDeck.logger.error(`kill failed for ${origin}/${sessionId} pid=${pid}`, err);
       await ev.action.showAlert();
@@ -304,4 +340,3 @@ async function copyToClipboard(text: string): Promise<void> {
   }
   throw new Error("no clipboard tool succeeded");
 }
-

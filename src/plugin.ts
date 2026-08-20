@@ -6,10 +6,12 @@ import { CommandAction } from "./command-action.js";
 import { watchForReload } from "./reload-watcher.js";
 import { createStateTracker } from "./state-tracker.js";
 import { renderAll } from "./render-loop.js";
-import { wipeAllEventLogs, wipeSessionEventLog, type SessionOrigin } from "./sessions.js";
+import { wipeAllEventLogs, wipeSessionEventLog, SESSION_SOURCES, type SessionOrigin, type SessionProvider } from "./sessions.js";
+import { watchSessionDirs } from "./session-watch.js";
 import { killSession } from "./kill-session.js";
 import { checkHooks, HOOK_FIX_HINT } from "./hook-check.js";
 import { ensureTabTitles } from "./tab-title.js";
+import { PendingLaunches } from "./pending-launch.js";
 
 streamDeck.logger.setLevel(LogLevel.DEBUG);
 
@@ -17,21 +19,34 @@ const POLL_MS = 1000;
 const ANIMATION_MS = 120;
 
 const tracker = createStateTracker();
+const pendingLaunches = new PendingLaunches();
 let frame = 0;
 let slowTickRunning = false;
+/** A tick asked for while one was in flight. Remembered rather than dropped:
+ *  the dir watcher fires on its own schedule, and swallowing that wake-up would
+ *  hand the new session back to the 1 s poll the watcher exists to skip. */
+let tickAgain = false;
 
 async function runSlowTick(): Promise<void> {
-  if (slowTickRunning) return;
+  if (slowTickRunning) {
+    tickAgain = true;
+    return;
+  }
   slowTickRunning = true;
   try {
-    const entries = await tracker.tick(slotAction.orderedActions().length);
-    await renderAll(slotAction, entries, frame);
-    // Own each tab's title so slot-press focus can match it exactly. Live
-    // sessions only: the finished-TTL carry-overs are dead processes whose
-    // pids would just be ps-probed (or, recycled, mis-stamped) for 3 s.
-    await ensureTabTitles(entries.filter((e) => e.state !== "finished").map((e) => e.session));
-  } catch (err) {
-    streamDeck.logger.error("tick failed", err);
+    do {
+      tickAgain = false;
+      try {
+        const entries = await tracker.tick(slotAction.orderedActions().length);
+        await renderAll(slotAction, entries, frame, pendingLaunches);
+        // Own each tab's title so slot-press focus can match it exactly. Live
+        // sessions only: the finished-TTL carry-overs are dead processes whose
+        // pids would just be ps-probed (or, recycled, mis-stamped) for 3 s.
+        await ensureTabTitles(entries.filter((e) => e.state !== "finished").map((e) => e.session));
+      } catch (err) {
+        streamDeck.logger.error("tick failed", err);
+      }
+    } while (tickAgain);
   } finally {
     slowTickRunning = false;
   }
@@ -48,19 +63,23 @@ async function refreshNow() {
   return result;
 }
 
-async function resetSlot(sessionId: string, origin: SessionOrigin): Promise<void> {
-  const r = await wipeSessionEventLog(sessionId, origin);
+async function resetSlot(sessionId: string, origin: SessionOrigin, provider: SessionProvider): Promise<void> {
+  const r = await wipeSessionEventLog(sessionId, origin, provider);
   if (!r.wiped) {
-    streamDeck.logger.warn(`wipeSessionEventLog(${origin}/${sessionId}) failed: ${r.error}`);
+    streamDeck.logger.warn(`wipeSessionEventLog(${provider}/${origin}/${sessionId}) failed: ${r.error}`);
     throw new Error(r.error ?? "wipe failed");
   }
   await runSlowTick();
 }
 
-async function killSlot(pid: number, sessionId: string, origin: SessionOrigin): Promise<void> {
-  streamDeck.logger.info(`kill requested for ${origin}/${sessionId} pid=${pid}`);
-  await killSession(pid, origin);
-  // Refresh : l'agent passera "finished" puis disparaîtra au tick suivant.
+async function killSlot(pid: number, sessionId: string, origin: SessionOrigin, provider: SessionProvider): Promise<void> {
+  streamDeck.logger.info(`kill requested for ${provider}/${origin}/${sessionId} pid=${pid}`);
+  const result = await killSession(pid, origin, provider);
+  // Signal delivered → the tile goes now, rather than waiting out the process's
+  // own shutdown plus the 3 s finished flash. Only on `terminated`: a refused
+  // kill (recycled pid, identity mismatch) must leave the tile exactly as it is.
+  if (result.terminated) tracker.markKilled(sessionId, pid);
+  else streamDeck.logger.warn(`kill not delivered for ${sessionId}: ${result.reason}`);
   await runSlowTick();
 }
 
@@ -69,6 +88,8 @@ const slotAction = new SlotAction(
   killSlot,
   (sessionId) => tracker.acknowledge(sessionId),
   (sessionId) => tracker.dismiss(sessionId),
+  pendingLaunches,
+  () => { void runSlowTick(); },
 );
 const setupAction = new SetupAction(refreshNow);
 const commandAction = new CommandAction();
@@ -81,6 +102,10 @@ await streamDeck.connect();
 watchForReload({ pollMs: POLL_MS });
 
 setInterval(runSlowTick, POLL_MS);
+// New sessions light their key on creation rather than on the next poll.
+watchSessionDirs(SESSION_SOURCES.map((source) => source.path), () => {
+  void runSlowTick();
+});
 
 let animateRunning = false;
 setInterval(async () => {
@@ -98,7 +123,7 @@ setInterval(async () => {
     return;
   }
   try {
-    await renderAll(slotAction, tracker.getEntries(), frame);
+    await renderAll(slotAction, tracker.getEntries(), frame, pendingLaunches);
   } catch (err) {
     streamDeck.logger.error("animation render failed", err);
   } finally {

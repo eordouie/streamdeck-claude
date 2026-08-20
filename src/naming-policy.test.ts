@@ -4,7 +4,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  bgJobLabel,
   canonicalTabTitle,
+  selfReferentialWords,
   DECKNAME_MAX_AGE_MS,
   PRUNE_GRACE_MS,
   sidecarMaxAgeMs,
@@ -29,6 +31,23 @@ test("canonicalTabTitle keeps hyphenated words", () => {
   assert.equal(canonicalTabTitle({ pid: 7, deckName: "pizza-fan" }), "claude-7-pizza-fan");
 });
 
+test("canonicalTabTitle treats the provider as nothing but a prefix", () => {
+  // Full parity is the contract: swap the provider and the title must be
+  // identical apart from that one word. Codex previously used a truncated
+  // session id here, which left it without a deck word.
+  assert.equal(canonicalTabTitle({ provider: "codex", pid: 7, deckName: "pizza-fan" }), "codex-7-pizza-fan");
+  assert.equal(canonicalTabTitle({ provider: "claude", pid: 7, deckName: "pizza-fan" }), "claude-7-pizza-fan");
+  assert.equal(canonicalTabTitle({ provider: "codex", pid: 7, deckName: "" }), "codex-7");
+  assert.equal(canonicalTabTitle({ provider: "claude", pid: 7, deckName: "" }), "claude-7");
+});
+
+test("canonicalTabTitle falls back per provider when the pid is unknown", () => {
+  assert.equal(canonicalTabTitle({ provider: "codex", deckName: "" }), "codex-session");
+  assert.equal(canonicalTabTitle({ provider: "claude", deckName: "" }), "claude-session");
+  // No provider at all defaults to claude, preserving pre-Codex behaviour.
+  assert.equal(canonicalTabTitle({ deckName: "" }), "claude-session");
+});
+
 test("sidecarMaxAgeMs: deck names persist, event logs do not", () => {
   assert.equal(sidecarMaxAgeMs("abc.deckname"), DECKNAME_MAX_AGE_MS);
   assert.equal(sidecarMaxAgeMs("abc.events.ndjson"), PRUNE_GRACE_MS);
@@ -50,4 +69,57 @@ test("takenWordsFromDisk reports only live sessions' words", async () => {
 
 test("takenWordsFromDisk on a missing dir is empty", async () => {
   assert.deepEqual(await takenWordsFromDisk(new Set(["x"]), "/nonexistent-naming-policy-test"), []);
+});
+
+test("the namer's own sentinel directory can never become a session's name", () => {
+  // The concrete leak (2026-08-17): four sessions were named "deck" because
+  // `claude -p` reports its working directory to the model, and a thin session
+  // gave it nothing better to latch onto.
+  const words = selfReferentialWords("/Users/ehsan/.claude/deck-namer");
+  for (const leaked of ["claude", "deck", "namer", "decknamer", "deck-namer"]) {
+    assert.equal(words.has(leaked), true, `${leaked} must be rejected`);
+  }
+  // A real subject word is untouched — the guard is scoped to the tool's own
+  // path, not a general blocklist.
+  for (const legit of ["news", "briefing", "mascots", "raymap", "streamdeck"]) {
+    assert.equal(words.has(legit), false, `${legit} must stay usable`);
+  }
+});
+
+test("renaming the sentinel moves the guard with it, and Windows paths work", () => {
+  const renamed = selfReferentialWords("/Users/ehsan/.claude/label-sandbox");
+  assert.equal(renamed.has("label"), true);
+  assert.equal(renamed.has("sandbox"), true);
+  assert.equal(renamed.has("labelsandbox"), true);
+  // The old name stops being blocked once nothing runs there — a hardcoded
+  // list would have kept rejecting it forever.
+  assert.equal(renamed.has("deck"), false);
+  assert.equal(selfReferentialWords("C:\\Users\\ehsan\\.claude\\deck-namer").has("deck"), true);
+  assert.equal(selfReferentialWords("").size, 0);
+});
+
+// ---------------------------------------------------------------------------
+// bgJobLabel — a bg tile never earns a deck word, so this IS its permanent name.
+//
+// Regression suite for 2026-08-19: a parked job whose record said
+// `name: "lever-ats-auth-issue"` rendered as "projects", because the label was
+// documented as "name field if set, else basename(cwd)" and the name was never
+// read. Every job launched from ~/Projects looked identical.
+// ---------------------------------------------------------------------------
+
+test("bgJobLabel prefers the job's own name over the cwd basename", () => {
+  assert.equal(bgJobLabel("lever-ats-auth-issue", "projects"), "lever-ats-auth-issue");
+});
+
+test("bgJobLabel falls back to the cwd basename when the job has no name", () => {
+  // A real state right after a park, before Claude Code names the job.
+  assert.equal(bgJobLabel(undefined, "projects"), "projects");
+  assert.equal(bgJobLabel("", "projects"), "projects");
+  assert.equal(bgJobLabel("   ", "projects"), "projects", "whitespace-only is absent, not a label");
+});
+
+test("bgJobLabel trims but does not truncate — the renderer wraps and escapes", () => {
+  assert.equal(bgJobLabel("  lever-ats-auth-issue  ", "projects"), "lever-ats-auth-issue");
+  const long = "a-very-long-background-job-name-that-will-wrap";
+  assert.equal(bgJobLabel(long, "projects"), long);
 });
