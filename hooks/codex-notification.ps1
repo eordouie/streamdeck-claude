@@ -17,7 +17,6 @@ if (-not $sessionId -or -not $eventName -or $sessionId -notmatch '^[A-Za-z0-9._-
 $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
 $sessionsDir = Join-Path $codexHome 'streamdeck\sessions'
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-New-Item -ItemType Directory -Force -Path $sessionsDir | Out-Null
 $target = Join-Path $sessionsDir "$sessionId.events.ndjson"
 $metaPath = Join-Path $sessionsDir "$sessionId.json"
 
@@ -25,6 +24,17 @@ if ($eventName -eq 'SessionStart' -and [string]$obj.source -eq 'compact') {
     Write-Output '{}'
     exit
 }
+# Partial mirror of the .sh gate: events for a session that has no record must
+# not create one. The .sh side also refuses the record's BIRTH when the codex
+# process has no tty on fd 0 (ghost tiles from `codex mcp-server` and the
+# ChatGPT desktop app's `codex app-server`, which share CODEX_HOME and its
+# hooks); Windows has no cheap fd-0 probe from a hook, so that half is
+# unmirrored here.
+if ($eventName -ne 'SessionStart' -and -not (Test-Path $metaPath)) {
+    Write-Output '{}'
+    exit
+}
+New-Item -ItemType Directory -Force -Path $sessionsDir | Out-Null
 if ($eventName -eq 'SessionStart') {
     [System.IO.File]::WriteAllText($target, '', $utf8NoBom)
 }

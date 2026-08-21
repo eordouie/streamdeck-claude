@@ -42,6 +42,19 @@ resolve_codex_pid() {
 }
 HOOK_PARENT_PID="$(resolve_codex_pid || true)"
 
+# A session somebody is typing into has its terminal on fd 0; an embedded codex
+# core gets a pipe. The same ~/.codex (hooks included) is shared by every codex
+# frontend: `codex mcp-server` under a Claude session and the ChatGPT desktop
+# app's bundled `codex app-server` both fire these hooks, and both used to land
+# on the deck as ghost codex tiles — one per MCP tool call, one per desktop-app
+# thread (2026-08-21). Same doctrine as readProcessIo in src/process-scan.ts.
+fd0_is_tty() {
+  local out
+  out="$(lsof -a -d 0 -p "$1" -Fftn 2>/dev/null || true)"
+  printf '%s\n' "$out" | grep -q '^tCHR$' || return 1
+  printf '%s\n' "$out" | grep -Eq '^n/dev/(tty|pts)'
+}
+
 if [ -z "${SESSION_ID:-}" ] || [ -z "${EVENT:-}" ] || ! [[ "$SESSION_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo '{}'
   exit 0
@@ -57,9 +70,25 @@ if [ "$EVENT" = "SessionStart" ]; then
   fi
 fi
 
-mkdir -p "$SESSIONS_DIR"
 TARGET="${SESSIONS_DIR}/${SESSION_ID}.events.ndjson"
 META="${SESSIONS_DIR}/${SESSION_ID}.json"
+
+# Record only terminal sessions. SessionStart is the gate: no codex ancestor or
+# no tty on its fd 0 means no record is born. Every later event requires the
+# record to already exist, so a rejected session's PostToolUse/Stop stream can
+# never resurrect it — and a TUI session's later events (whose META exists)
+# pass untouched.
+if [ "$EVENT" = "SessionStart" ]; then
+  if [ -z "$HOOK_PARENT_PID" ] || ! fd0_is_tty "$HOOK_PARENT_PID"; then
+    echo '{}'
+    exit 0
+  fi
+elif [ ! -f "$META" ]; then
+  echo '{}'
+  exit 0
+fi
+
+mkdir -p "$SESSIONS_DIR"
 
 if [ "$EVENT" = "SessionStart" ]; then
   : > "$TARGET"
