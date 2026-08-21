@@ -18,13 +18,15 @@ import { join } from "node:path";
  *  the ambiguity this whole mechanism exists to kill. The pid keeps the full
  *  title unique even if two live sessions ever carry the same word (possible
  *  since persisted words of dormant conversations may be reused). */
-export function canonicalTabTitle(session: { pid?: number; deckName: string; provider?: "claude" | "codex"; sessionId?: string }): string {
-  // The provider is ONLY a prefix. Both providers get the identical
-  // `<provider>-<pid>-<word>` shape so every downstream convention — the deck
-  // word, the tab strip, the exact-match focus lookup — behaves the same for
-  // Codex as for Claude. Codex used to fall back to a truncated session id
-  // here, which quietly made it a second-class citizen with no deck word.
-  const provider = session.provider ?? "claude";
+export function canonicalTabTitle(session: { pid?: number; deckName: string; provider: string; sessionId?: string }): string {
+  // The provider is ONLY a prefix, and it is REQUIRED: defaulting it to
+  // `claude` meant a session whose provider went missing was silently renamed
+  // into Claude's namespace. Every provider gets the identical
+  // `<provider>-<pid>-<word>` shape so the deck word, the tab strip and the
+  // exact-match focus lookup behave the same for all of them. Codex used to
+  // fall back to a truncated session id here, which quietly made it a
+  // second-class citizen with no deck word.
+  const provider = session.provider;
   const word = session.deckName.trim();
   if (session.pid === undefined) return `${provider}-session`;
   return /^[\w-]{1,24}$/.test(word) ? `${provider}-${session.pid}-${word}` : `${provider}-${session.pid}`;

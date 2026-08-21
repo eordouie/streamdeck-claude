@@ -92,7 +92,7 @@ for the two read paths.
 
 Every registered Claude Code event runs the same hook script (`notification.sh` on WSL, `notification.ps1` on Windows). Both do exactly one thing: append a single JSON line — `{"ts":…,"event":…,"tool":…?}` — to `~/.claude/sessions/<sid>.events.ndjson`. There is no mapping table; the bash and PowerShell scripts are tiny mirrors of each other. `SessionStart` truncates the log first (clean reset, bounds long-lived sessions); `SessionEnd` unlinks it.
 
-The plugin reads each session's event log every tick and replays it through the pure state machine in `src/session-events.ts` (`reduceEvents`). That function is the single source of truth for state transitions — adding a new state means one new case there plus registering the event in `install-hook.sh`. No `events.json`, no per-state sidecar files, no mtime/TTL/grace heuristics.
+The plugin reads each session's event log every tick and replays it through the pure state machine in `src/session-events.ts` (`reduceEvents`). That function is the single source of truth for state transitions — adding a new state means one new case there plus registering the event in `install-hook.sh`. No `events.json`, no per-state sidecar files, no mtime heuristics; the one TTL is agent liveness (`BG_AGENT_TTL_MS`, 15 min — must exceed the 10-min Bash tool cap, the longest silent gap a live agent can have mid-call; see LESSONS "SubagentStart and SubagentStop are not a pair").
 
 The Windows hook is **not copied** — `install-hook.sh --target=windows` registers a PowerShell command that runs `hooks/notification.ps1` directly over `\\wsl.localhost\<distro>\…\hooks\notification.ps1`, so a single repo edit propagates to both. PID liveness still handles the case where a CC process dies hard (no `SessionEnd`): the session disappears from display via `state-tracker.ts`'s `prevLiveIds` check, and orphan sidecars (event logs and .deckname files whose sid has no session file — sids are UUIDs and never reused) are removed by the grace-gated orphan sweep in `pruneDeadSessions`.
 
@@ -151,7 +151,10 @@ elephant, an olive-green stegosaurus, llama, panda. All walk in place on idle
 (leg poses alternating every 3 frames + torso bob) and blink on a shared
 cadence with per-slot phase offsets; `working` walks the character across the
 key and `subagent` gives it four desynchronised babies (`slotCharacterWalk` /
-`subagentWalk`).
+`subagentWalk`). What DRIVES `subagent` is a live-set keyed on the hook's
+`agent_id` (reconciled by the `bgIds` snapshot every SubagentStop carries) —
+never start/stop depth, which CC does not pair — and it outlives the turn:
+the family keeps walking on an idle rawStatus while background agents run.
 
 The single `MASCOTS` table owns each character's draw function, travel
 direction, and foot line together. Those were three parallel
@@ -211,9 +214,16 @@ each tick also scans `ps` for agent CLIs and turns any unclaimed one into a
 normal `SessionInfo` (idle, aged by `ps -o lstart=`, cwd from `lsof`). Rules that
 must survive edits here:
 
-- **A real tty is required.** It is the only thing keeping the ChatGPT desktop
-  app's own `codex` app-server and the namer's headless `claude -p` calls off the
-  deck. Match on `basename(comm)` — `comm` is often a full vendor path.
+- **The process table says WHICH binary; fd 0 says whether anybody is typing
+  into it.** A real tty in `ps` is a cheap pre-filter only. The verdict is
+  `readProcessIo`: fd 0 is the terminal for a TUI (`f0 tCHR n/dev/ttys000`) and a
+  pipe for anything spawned as plumbing (`f0 tunix n->0x…`) — MCP servers,
+  app-servers, `--print` runs, and whatever the next agent calls its headless
+  mode. This is deliberately provider-agnostic: `codex mcp-server` shares the
+  TUI's binary name, tty, cwd, process group and `S+` state, and inherits its
+  HOST session's terminal, so nothing but stdio can separate them. It costs no
+  extra spawn — the same `lsof` already read the cwd. Fails closed: no proof of a
+  terminal, no tile. See `LESSONS.md`, "An MCP server is the same binary".
 - **Provisional sessions must never reach file code.** They have no files;
   `state-tracker.ts` appends them after `readAllSessions` and passes only
   `recorded` to `pruneDeadSessions`.
@@ -226,6 +236,46 @@ must survive edits here:
   does inherit `STREAMDECK_LAUNCH_ID` (that is how its hook reports it); it just
   cannot be read back from outside. Hence the tab writes its tty under its launch
   id (`launch-tty.ts`), and the tty joins process to slot.
+
+**The agent list is config, not code** (`agent-config.ts`, 2026-08-20).
+`~/.claude/streamdeck-agents.json` declares which CLIs count as agents and which
+one's tiles go untagged:
+
+```json
+{
+  "agents": { "claude": ["claude", "claude.exe"], "codex": ["codex"], "gemini": ["gemini"] },
+  "untaggedAgent": "claude"
+}
+```
+
+Absent file = the built-in default (claude + codex, claude untagged), so nothing
+breaks on a machine without it. Adding an agent is that one line plus `pnpm
+sd:reload` — no code edit, no release. A provider declares a LIST of binaries
+because `claude` and `claude.exe` are both Claude Code; matching also accepts
+npm's per-arch suffix (`codex-darwin-arm64`).
+
+Why a list at all, given it looks like the coupling it replaced: nothing at the
+OS level distinguishes an LLM CLI from `vim` — both are interactive programs
+holding a terminal — so discovery by shape alone would tile every editor and
+pager. The list is irreducible; its LOCATION was the fixable part.
+
+**The rule that keeps it honest: nothing under `src/` may branch on a member of
+that list.** Provider ids flow through as opaque strings. `provider === "codex"`
+is allowed only inside that provider's own reader/adapter, where the difference
+is a genuinely mechanical one (a different on-disk layout, a different liveness
+probe). Everything else is either a preference — which belongs in
+`agent-config.ts` — or a bug. The four `?? "claude"` defaults that used to sit in
+`kill-session.ts`, `slot-action.ts` and `naming-policy.ts` were exactly that bug:
+a session whose provider went missing got Claude's namespace, Claude's kill
+guard, and Claude's tab title. Provider is now required at every one of them, and
+a slot that cannot say which agent it holds is treated as UNBOUND rather than
+assumed to be Claude.
+
+Still coupled, deliberately, and the remaining debt: `sessions.ts`'s prune logic
+knows Claude writes `<pid>.json` while the Codex bridge writes
+`<sessionId>.json`. That is real mechanical knowledge, but it belongs in each
+adapter rather than in shared code — the next step if a third agent ever needs
+pruning.
 
 **Provider parity is the contract.** The only intended difference between a
 Claude session and a Codex one is the word `claude` vs `codex`. Every
@@ -277,6 +327,10 @@ that survives both signals must reappear rather than leave a live session hidden
 Key layout and key behaviours live in the dotfiles repo, deliberately, so this
 fork's diff against upstream stays upstreamable:
 
+- `~/.claude/streamdeck-agents.json` — which CLIs count as agents (see "The
+  agent list is config, not code" above). Plugin-side, read from `homedir()`, and
+  optional. NOT in dotfiles today; symlink it there if it should follow the
+  machine.
 - `~/Projects/dotfiles/streamdeck/layout.toml` — 14 keys declared: eight
   `com.julien.claudesessions.slot` entries, five on row 0 and three on row 1
   left (this plugin), plus six

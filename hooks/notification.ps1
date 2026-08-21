@@ -21,6 +21,7 @@ $sessionId = $null
 $eventName = $null
 $toolName  = $null
 $notifType = $null
+$agentId   = $null
 if ($payload) {
     try {
         $obj       = $payload | ConvertFrom-Json
@@ -30,6 +31,9 @@ if ($payload) {
         # notification_type is set by CC on Notification events
         # (permission_prompt, idle_prompt, elicitation_dialog, auth_success).
         $notifType = $obj.notification_type
+        # agent_id marks hook fires that happened inside a subagent; the
+        # reducer keys its live-agent set on it (see notification.sh).
+        $agentId   = $obj.agent_id
     } catch {
         $sessionId = $null
     }
@@ -85,14 +89,30 @@ if ($toolName -eq 'TodoWrite') {
     }
 }
 
+# SubagentStop carries background_tasks: the authoritative snapshot of
+# still-running tasks. Project the running SUBAGENT ids; $null (no claim,
+# old CC) is distinct from an empty array (nothing running).
+$bgIds = $null
+if ($eventName -eq 'SubagentStop' -and $null -ne $obj.background_tasks) {
+    try {
+        $bgIds = [string[]]@($obj.background_tasks |
+            Where-Object { $_.type -eq 'subagent' -and $_.status -eq 'running' } |
+            ForEach-Object { $_.id })
+    } catch {
+        $bgIds = $null
+    }
+}
+
 # Use ConvertTo-Json so embedded quotes/backslashes in tool names get escaped
 # correctly — string interpolation would corrupt the line.
 $entry = [ordered]@{ ts = $ts; event = $eventName }
 if ($toolName)         { $entry.tool      = $toolName }
 if ($notifType)        { $entry.notifType = $notifType }
 if ($termKind)         { $entry.term      = $termKind }
+if ($agentId)          { $entry.agentId   = $agentId }
 if ($null -ne $todos)  { $entry.todos     = $todos }
 if ($launchId)          { $entry.launchId  = $launchId }
+if ($null -ne $bgIds)  { $entry.bgIds     = $bgIds }
 $line = $entry | ConvertTo-Json -Compress
 
 Add-Content -Path $target -Value $line -Encoding utf8

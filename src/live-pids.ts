@@ -158,12 +158,21 @@ export async function filterLiveSessions(sessions: SessionInfo[]): Promise<Liven
       if (livePids.has(s.pid)) live.add(s.sessionId);
       continue;
     }
-    // No pid: only reachable for a Codex session whose hook found no codex
-    // ancestor to attribute. Fall back to the bridge's own flag, which
-    // SessionEnd clears. Weaker than a pid check — a hard-killed session with
-    // no SessionEnd lingers until its record is pruned — but it is strictly
-    // better than dropping a live session off the deck.
-    if (s.provider === "codex" && s.active !== false) live.add(s.sessionId);
+    // No pid at all. Reached today only by a Codex bridge record whose hook
+    // found no codex ancestor to attribute, but the rule needs no provider name:
+    // a record that carries no pid can only be judged by its own liveness flag,
+    // which SessionEnd clears. Claude records take their pid from the filename
+    // and never land here. Weaker than a pid check — a hard-killed session with
+    // no SessionEnd lingers until its record is pruned — but strictly better
+    // than dropping a live session off the deck, and it now holds for any future
+    // agent that reports itself the same way.
+    //
+    // `=== true`, not `!== false`: the flag must be a POSITIVE claim. Only the
+    // Codex reader sets it (`active: raw.active !== false`), so a record that
+    // never mentions liveness — every Claude record — must fall through as dead
+    // rather than be treated as live forever. That inversion is how the phantom
+    // Codex tile worked, and it is not worth re-inventing here.
+    if (s.active === true) live.add(s.sessionId);
   }
 
   const errors = [wslRes.error, winRes.error].filter(Boolean) as string[];

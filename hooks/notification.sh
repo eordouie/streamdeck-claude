@@ -26,6 +26,23 @@ if [ -z "${SESSION_ID:-}" ] || [ -z "${EVENT:-}" ]; then
   exit 0
 fi
 
+# agent_id is present on every hook fire that happened INSIDE a subagent
+# (tool events included) and absent on main-thread fires. The reducer uses it
+# as a live-set key: SubagentStart/Stop are NOT a matched pair (measured
+# 2026-08-20: 21 starts vs 178 stops in one workflow session), so depth
+# counting is broken without it.
+AGENT_ID="$(printf '%s' "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null || true)"
+
+# SubagentStop (and only it) carries background_tasks: the authoritative
+# snapshot of still-running tasks. Project the running SUBAGENT ids; shells
+# are the bg-job tiles' domain. Distinguish absent (null → no claim, old CC)
+# from present-but-empty ([] → nothing running).
+BGIDS_JSON='null'
+if [ "$EVENT" = "SubagentStop" ]; then
+  BGIDS_JSON="$(printf '%s' "$INPUT" | jq -c 'if (.background_tasks | type) == "array" then [.background_tasks[] | select(.type == "subagent" and .status == "running") | .id] else null end' 2>/dev/null || echo 'null')"
+  [ -z "$BGIDS_JSON" ] && BGIDS_JSON='null'
+fi
+
 mkdir -p "$SESSIONS_DIR"
 TARGET="${SESSIONS_DIR}/${SESSION_ID}.events.ndjson"
 
@@ -118,7 +135,9 @@ jq -nc \
   --arg transcript "$TRANSCRIPT" \
   --arg prompt "$PROMPT" \
   --arg launchId "$LAUNCH_ID" \
+  --arg agentId "$AGENT_ID" \
   --argjson todos "$TODOS_JSON" \
+  --argjson bgIds "$BGIDS_JSON" \
   '{ts: $ts, event: $event}
    | (if $tool       != ""   then . + {tool:       $tool}       else . end)
    | (if $notifType  != ""   then . + {notifType:  $notifType}  else . end)
@@ -126,7 +145,9 @@ jq -nc \
    | (if $transcript != ""   then . + {transcript: $transcript} else . end)
    | (if $prompt     != ""   then . + {prompt:     $prompt}     else . end)
    | (if $launchId   != ""   then . + {launchId:   $launchId}   else . end)
-   | (if $todos      != null then . + {todos:      $todos}      else . end)' \
+   | (if $agentId    != ""   then . + {agentId:    $agentId}    else . end)
+   | (if $todos      != null then . + {todos:      $todos}      else . end)
+   | (if $bgIds      != null then . + {bgIds:      $bgIds}      else . end)' \
   >> "$TARGET" \
   || printf '{"ts":%d,"event":"%s"}\n' "$TS_MS" "$EVENT" >> "$TARGET" \
   || true

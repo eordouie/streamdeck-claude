@@ -432,3 +432,117 @@ imports the Elgato SDK, which **dies on import under `tsx --test` and is then
 reported as one PASSING test** (the trap `naming-policy.ts` warns about). The
 guard had to move to its own dependency-free module before it could be honestly
 covered. A green suite that never executed your assertion is worse than no test.
+
+## An MCP server is the same binary as the TUI, on the same terminal
+
+`process-scan.ts` turned any `codex`/`claude` process with a controlling
+terminal into a deck tile, and the tty was documented as "the only thing"
+keeping non-sessions off the deck. It is not. Every Claude Code session with the
+Codex MCP server configured spawns
+
+```
+node /opt/homebrew/bin/codex mcp-server
+  └─ …/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex mcp-server
+```
+
+as a **child of the interactive `claude`**, so it inherits `claude`'s tty. `ps
+-Ao comm=` prints `codex` for it — byte-identical to a real TUI. The scan read
+its cwd (inherited too) and drew a Codex tile labelled with the host session's
+project. Two Claude sessions meant two phantom Codex tiles that lived exactly as
+long as the sessions, which is why it read as "there is always a Codex session I
+never opened".
+
+Everything the process table offers is the same for both, measured: same `comm`,
+same tty, same `pgid`, matching `tpgid`, both `S+`. Every foreground signal says
+"this is the terminal's job", because it genuinely is.
+
+**What separates them is fd 0.** A TUI somebody is typing into reads the terminal
+(`f0 tCHR n/dev/ttys000`); anything spawned as plumbing is handed pipes (`f0
+tunix n->0x…`). Inheriting a tty does not put it on fd 0. One `lsof -a -d cwd,0`
+answers it, and that call was already being made for the cwd, so the check is
+free.
+
+The first fix attempt was a per-provider subcommand denylist (`mcp-server`,
+`exec`, …) plus a ppid walk for "an agent spawned by an agent". Both worked and
+both were wrong in kind: they taught the scanner Codex's CLI grammar, so every
+new headless verb upstream ships is a future phantom and a future release. Prefer
+the structural test — it is shorter, needs no verb lists, and covers agents this
+repo has never heard of. **When a rule needs to know a provider's vocabulary to
+work, look for the OS-level fact it is standing in for.**
+
+Fails closed on purpose: no positive proof of a terminal means no tile. The cost
+is a tile that appears late (only ever in the pre-record window); the cost of
+failing open is a phantom that never leaves.
+
+Side note also measured: macOS `ps` does **not** truncate `args=` when stdout is
+a pipe (a 1948-char line came through whole), in case argv is ever needed here.
+
+## A default is a preference, and four of them said Claude
+
+Auditing the deck for provider independence, the launch path came out clean —
+one gesture, no agent named anywhere. The identity path did not, and the tell was
+not the obvious `provider === "codex"` branches (most of those are real
+mechanical differences: a different on-disk layout, a different liveness probe).
+It was four fallbacks:
+
+```
+kill-session.ts    provider: ProviderId = "claude"
+slot-action.ts     slot.provider ?? "claude"   (x2)
+naming-policy.ts   session.provider ?? "claude"
+```
+
+Each one reads as harmless defensiveness and each one is a decision: a session
+whose provider went missing got Claude's tab-title namespace, Claude's kill
+identity guard, and Claude's event log. `?? "claude"` in a kill path is the
+sharpest version — it decides which binary a SIGTERM is allowed to hit.
+
+All four are now required parameters. The one that had to be handled rather than
+just tightened was `slot-action.ts`: a slot whose provider is unknown is treated
+as **unbound** (a press opens a new tab) instead of assumed to be Claude, because
+the two actions behind that value are a log wipe and a kill.
+
+Related, on where a name list belongs: `AGENT_BINARIES` was a hardcoded table, so
+a third agent got no tile at all until someone edited the scanner and cut a
+release. It moved to `~/.claude/streamdeck-agents.json`. Discovery by shape
+instead — no list at all — was considered and rejected: verified live on this
+Mac, declaring `zsh` in that config tiles a login shell exactly the way it would
+tile `gemini`, because nothing at the OS level distinguishes an LLM CLI from any
+other interactive program. The list is irreducible; its LOCATION was the fixable
+part. Keep `ProviderId` an opaque string everywhere above the adapters.
+
+Also learned the hard way (twice now, and the second time was self-inflicted):
+`env.ts` asserts its build-time sentinels **at module load** and throws under
+`tsx --test`. `agent-config.ts` imported it for one path constant and took two
+unrelated test files down with it. Node builtins only means node builtins only —
+`launch-tty.ts` computes its own dir for exactly this reason, and `homedir()` is
+the plugin-side answer anyway.
+
+
+## SubagentStart and SubagentStop are not a pair
+
+The `subagent` family motif died seconds after every spawn while agents kept
+running for twenty more minutes. Root cause, measured on a live workflow
+session: **21 SubagentStart events against 178 SubagentStop events.**
+Workflow-tool agents fire stops without ever firing starts, so
+`depth = starts − stops` floored to zero on the first unmatched stop and the
+kids vanished. The FIFO badge list died the same death — every foreign stop
+`slice(1)`d a start it didn't own.
+
+What the raw payloads actually carry (probed by teeing `$INPUT`, 2026-08-20):
+every hook fire that happens INSIDE a subagent — tool events included —
+carries `agent_id`/`agent_type`, and main-thread fires carry neither; and
+`SubagentStop` (only it) carries `background_tasks`, the authoritative array
+of still-running tasks. The hook was dropping all of it. Liveness is now a
+SET keyed on agent_id: any agent-context event upserts (a workflow agent's
+first tool call is the only birth certificate it ever presents), the agent's
+own stop removes, and each stop's snapshot reconciles the set both ways.
+Deleting an id a foreign stop never added is a no-op, which is the property
+depth counting lacked.
+
+Two traps for whoever touches this next: a stopping agent can appear in its
+own stop's `background_tasks` (observed live — apply the snapshot, THEN
+delete the stopper), and `background_tasks` absent is not `background_tasks`
+empty (old-CC lines make no claim; `[]` means nothing is running). The TTL
+that ages a silent agent out must exceed the longest single tool call — Bash
+caps at 10 min, so 15 — because an agent inside one long call emits nothing
+between its PreToolUse and PostToolUse.

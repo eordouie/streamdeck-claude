@@ -169,7 +169,7 @@ test("background-agent starts survive turn boundaries, unlike subagentDepth", ()
     ev("UserPromptSubmit", { prompt: "different topic entirely here" }),
   ]);
   assert.equal(d.subagentDepth, 0, "turn-scoped depth resets at boundaries");
-  assert.deepEqual(d.bgAgentStartTimes, [1000, 2000], "cross-turn starts persist");
+  assert.deepEqual(d.agentLastSeen, [1000, 2000], "cross-turn starts persist");
 });
 
 test("SubagentStop retires the oldest outstanding start, and floors at empty", () => {
@@ -178,17 +178,17 @@ test("SubagentStop retires the oldest outstanding start, and floors at empty", (
     JSON.stringify({ ts: 2000, event: "SubagentStart" }),
     JSON.stringify({ ts: 3000, event: "SubagentStop" }),
   ]);
-  assert.deepEqual(d.bgAgentStartTimes, [2000]);
+  assert.deepEqual(d.agentLastSeen, [2000]);
   const empty = reduce([JSON.stringify({ ts: 1000, event: "SubagentStop" })]);
-  assert.deepEqual(empty.bgAgentStartTimes, [], "a stop with nothing outstanding is a no-op");
+  assert.deepEqual(empty.agentLastSeen, [], "a stop with nothing outstanding is a no-op");
 });
 
 test("outstanding starts are capped, keeping the newest", () => {
   const lines = Array.from({ length: 20 }, (_, i) => JSON.stringify({ ts: (i + 1) * 100, event: "SubagentStart" }));
   const d = reduce(lines);
-  assert.equal(d.bgAgentStartTimes.length, 16);
-  assert.equal(d.bgAgentStartTimes[0], 500, "oldest four dropped");
-  assert.equal(d.bgAgentStartTimes[15], 2000);
+  assert.equal(d.agentLastSeen.length, 16);
+  assert.equal(d.agentLastSeen[0], 500, "oldest four dropped");
+  assert.equal(d.agentLastSeen[15], 2000);
 });
 
 test("liveBgAgents ages out unmatched starts by TTL — a leaked start cannot strand the badge", () => {
@@ -196,6 +196,76 @@ test("liveBgAgents ages out unmatched starts by TTL — a leaked start cannot st
   const starts = [now - BG_AGENT_TTL_MS - 1, now - 60_000, now - 1000];
   assert.equal(liveBgAgents(starts, now), 2);
   assert.equal(liveBgAgents(starts, now + BG_AGENT_TTL_MS), 0, "everything eventually expires");
+});
+
+// --- agentId live-set (new-format logs) --------------------------------------
+//
+// Regression suite for the 2026-08-20 "kids vanish" bug: SubagentStart/Stop
+// are NOT a matched pair (measured live: 21 starts vs 178 stops in one
+// workflow session — workflow agents fire stops without ever firing starts),
+// so every unmatched stop floored subagentDepth back to 0 and the family
+// motif died seconds after each spawn. The fix keys liveness on agent_id.
+
+test("a stop-storm from OTHER agents cannot kill a live agent's presence", () => {
+  const d = reduce([
+    JSON.stringify({ ts: 1000, event: "SubagentStart", agentId: "a1" }),
+    // 3 workflow agents that never fired a start each announce their death.
+    JSON.stringify({ ts: 2000, event: "SubagentStop", agentId: "w1" }),
+    JSON.stringify({ ts: 2100, event: "SubagentStop", agentId: "w2" }),
+    JSON.stringify({ ts: 2200, event: "SubagentStop", agentId: "w3" }),
+  ]);
+  assert.deepEqual(d.agentLastSeen, [1000], "a1 is still believed live");
+});
+
+test("a workflow agent with no SubagentStart becomes visible on its first tool call", () => {
+  const d = reduce([
+    JSON.stringify({ ts: 1000, event: "PreToolUse", tool: "Bash", agentId: "w1" }),
+    JSON.stringify({ ts: 5000, event: "PostToolUse", tool: "Bash", agentId: "w1" }),
+  ]);
+  assert.deepEqual(d.agentLastSeen, [5000], "one live agent, ts refreshed by its last event");
+});
+
+test("an agent's own stop removes it, even when its snapshot still lists it", () => {
+  // Observed live 2026-08-20: a single-agent session's SubagentStop carried
+  // background_tasks listing the stopper itself as running.
+  const d = reduce([
+    JSON.stringify({ ts: 1000, event: "SubagentStart", agentId: "a1" }),
+    JSON.stringify({ ts: 2000, event: "SubagentStop", agentId: "a1", bgIds: ["a1"] }),
+  ]);
+  assert.deepEqual(d.agentLastSeen, [], "the stopper never survives its own stop");
+});
+
+test("a bgIds snapshot prunes ghosts, adopts unseen ids, and supersedes the legacy list", () => {
+  const d = reduce([
+    JSON.stringify({ ts: 500, event: "SubagentStart" }), // old-format legacy start
+    JSON.stringify({ ts: 1000, event: "SubagentStart", agentId: "ghost" }),
+    JSON.stringify({ ts: 1500, event: "PreToolUse", tool: "Read", agentId: "a1" }),
+    // stop of some other agent, snapshot says: a1 still running, plus a2 we
+    // never saw an event for; ghost is gone (killed without its own stop).
+    JSON.stringify({ ts: 3000, event: "SubagentStop", agentId: "w9", bgIds: ["a1", "a2"] }),
+  ]);
+  assert.deepEqual([...d.agentLastSeen].sort(), [1500, 3000], "a1 keeps its ts, a2 stamped at the snapshot, ghost and legacy gone");
+});
+
+test("an empty snapshot means nothing is running — everything clears", () => {
+  const d = reduce([
+    JSON.stringify({ ts: 1000, event: "SubagentStart", agentId: "a1" }),
+    JSON.stringify({ ts: 1100, event: "PreToolUse", tool: "Bash", agentId: "a2" }),
+    JSON.stringify({ ts: 2000, event: "SubagentStop", agentId: "a1", bgIds: [] }),
+  ]);
+  assert.deepEqual(d.agentLastSeen, []);
+});
+
+test("the live set survives turn boundaries — background agents outlive the turn", () => {
+  const d = reduce([
+    ev("UserPromptSubmit", { prompt: "audit everything in the repo" }),
+    JSON.stringify({ ts: 1000, event: "SubagentStart", agentId: "a1" }),
+    ev("Stop"),
+    ev("UserPromptSubmit", { prompt: "different topic entirely here" }),
+    ev("Stop"),
+  ]);
+  assert.equal(d.subagentDepth, 0, "depth stays turn-scoped");
+  assert.deepEqual(d.agentLastSeen, [1000], "a1 rides across turns until its stop or the TTL");
 });
 
 // --- interactiveState: the status+flags → displayed-state decision ---
@@ -225,6 +295,12 @@ test("busy branch unchanged: flags win, else subagent/working", () => {
 
 test("idle stays idle even with stale flags — the interrupt case must not regress", () => {
   assert.equal(interactiveState("idle", { ...noFlags, awaitingQuestion: true, awaitingPermission: true }), "idle");
+});
+
+test("idle with live background agents keeps the family walking — the work is still running", () => {
+  assert.equal(interactiveState("idle", { ...noFlags, subagentActive: true }), "subagent");
+  // Stale flags still lose to idle; only the live-agent signal outranks it.
+  assert.equal(interactiveState("idle", { ...noFlags, awaitingPermission: true, subagentActive: true }), "subagent");
 });
 
 // ---------------------------------------------------------------------------

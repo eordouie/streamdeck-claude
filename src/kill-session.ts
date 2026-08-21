@@ -5,6 +5,7 @@ import type { ProviderId, TerminateResult } from "./provider-types.js";
 import { WSL_DISTRO } from "./env.js";
 import { spawnCapture } from "./spawn-capture.js";
 import { processBelongsToProvider } from "./provider-process.js";
+import { loadAgentConfig } from "./agent-config.js";
 
 /** Délai avant d'escalader SIGTERM → SIGKILL si le process refuse de partir. */
 const SIGKILL_ESCALATION_MS = 2000;
@@ -21,7 +22,7 @@ const SIGKILL_ESCALATION_MS = 2000;
 export async function killSession(
   pid: number,
   origin: SessionOrigin,
-  provider: ProviderId = "claude",
+  provider: ProviderId,
 ): Promise<TerminateResult> {
   if (platform() === "win32") {
     await killWindows(pid, origin);
@@ -29,11 +30,15 @@ export async function killSession(
   }
   // Identity check before signaling: a <pid>.json can outlive its process
   // (CC died while the SD app was off), and after a reboot the pid may have
-  // been recycled by an unrelated process. Killing must only ever hit a
-  // process that IS a claude — verified live: CC's comm is exactly "claude".
-  const probe = await spawnCapture("/bin/ps", ["-p", String(pid), "-o", "comm="], { timeoutMs: 2000 });
+  // been recycled by an unrelated process. Killing must only ever hit a process
+  // that IS this provider's binary — the names come from config, so a newly
+  // configured agent is killable without touching this file.
+  const [probe, config] = await Promise.all([
+    spawnCapture("/bin/ps", ["-p", String(pid), "-o", "comm="], { timeoutMs: 2000 }),
+    loadAgentConfig(),
+  ]);
   const comm = probe.stdout.trim().split("/").pop() ?? "";
-  if (probe.err || probe.code !== 0 || !processBelongsToProvider(comm, provider)) {
+  if (probe.err || probe.code !== 0 || !processBelongsToProvider(comm, provider, config)) {
     streamDeck.logger.warn(
       `refusing to kill pid=${pid}: comm=${JSON.stringify(comm)} is not a ${provider} process (recycled pid?)`,
     );

@@ -1,7 +1,8 @@
 import { basename } from "node:path";
 import type { SessionInfo } from "./sessions.js";
 import { readLaunchTtys, pruneLaunchTtys } from "./launch-tty.js";
-import { readProcessCwd, readProcessStart, scanAgentProcesses, type AgentProcess } from "./process-scan.js";
+import { readProcessIo, readProcessStart, scanAgentProcesses, type AgentProcess } from "./process-scan.js";
+import { loadAgentConfig, providerTag } from "./agent-config.js";
 
 /** Marks a session assembled from a running process rather than from a record
  *  the agent wrote. Load-bearing: everything that touches session FILES must
@@ -9,6 +10,13 @@ import { readProcessCwd, readProcessStart, scanAgentProcesses, type AgentProcess
 export const PROVISIONAL_PREFIX = "pending:";
 
 export const isProvisional = (sessionId: string): boolean => sessionId.startsWith(PROVISIONAL_PREFIX);
+
+/** Agent processes already proved to be plumbing, keyed `pid:tty`. An MCP server
+ *  lives exactly as long as the session hosting it, so without this the same
+ *  verdict is re-bought with an `lsof` every tick for the life of that session.
+ *  Entries are dropped as soon as the pid leaves the scan, so a recycled pid is
+ *  judged afresh. */
+const notASession = new Set<string>();
 
 /**
  * Agents that are RUNNING but have not announced themselves yet.
@@ -27,8 +35,10 @@ export const isProvisional = (sessionId: string): boolean => sessionId.startsWit
  */
 export async function readProvisionalSessions(known: readonly SessionInfo[]): Promise<SessionInfo[]> {
   const processes = await scanAgentProcesses();
+  const present = new Set(processes.map((proc) => key(proc)));
+  for (const gone of notASession) if (!present.has(gone)) notASession.delete(gone);
   const knownPids = new Set(known.map((session) => session.pid).filter((pid): pid is number => pid !== undefined));
-  const unclaimed = processes.filter((proc) => !knownPids.has(proc.pid));
+  const unclaimed = processes.filter((proc) => !knownPids.has(proc.pid) && !notASession.has(key(proc)));
   if (unclaimed.length === 0) {
     // Nothing to describe — but still sweep the handoff dir, since a launch that
     // never produced an agent leaves a file behind.
@@ -37,21 +47,33 @@ export async function readProvisionalSessions(known: readonly SessionInfo[]): Pr
   }
 
   const [ttyToLaunch] = await Promise.all([readLaunchTtys(), pruneLaunchTtys()]);
-  return Promise.all(unclaimed.map((proc) => describe(proc, ttyToLaunch.get(proc.tty))));
+  const described = await Promise.all(unclaimed.map((proc) => describe(proc, ttyToLaunch.get(proc.tty))));
+  return described.filter((session): session is SessionInfo => session !== undefined);
 }
 
-async function describe(proc: AgentProcess, launchId: string | undefined): Promise<SessionInfo> {
-  // Two extra spawns, only ever for a process with no record of its own: the
-  // start time so it sorts among real sessions by age, and the cwd so the tile
-  // carries a project label and a paste payload from its first frame.
-  const [startedAt, cwd] = await Promise.all([readProcessStart(proc.pid), readProcessCwd(proc.pid)]);
+const key = (proc: AgentProcess): string => `${proc.pid}:${proc.tty}`;
+
+async function describe(proc: AgentProcess, launchId: string | undefined): Promise<SessionInfo | undefined> {
+  // stdio decides it, and it decides it for every agent past, present and
+  // future: fd 0 is the terminal for a TUI somebody is typing into, and a pipe
+  // for anything spawned as plumbing. A `codex mcp-server` INHERITS its host
+  // session's tty — the process table cannot tell them apart, fd 0 always can.
+  const io = await readProcessIo(proc.pid);
+  if (io.stdinTty === undefined) {
+    notASession.add(key(proc));
+    return undefined;
+  }
+  // One more spawn for a process with no record of its own: the start time, so
+  // it sorts among real sessions by age.
+  const startedAt = await readProcessStart(proc.pid);
+  const cwd = io.cwd;
   return {
     provider: proc.provider,
     pid: proc.pid,
     sessionId: `${PROVISIONAL_PREFIX}${proc.provider}:${proc.pid}`,
     cwd: cwd ?? "",
     label: cwd ? basename(cwd) : "",
-    providerLabel: proc.provider === "codex" ? "codex" : undefined,
+    providerLabel: providerTag(proc.provider, await loadAgentConfig()),
     startedAt: startedAt ?? Date.now(),
     // Sitting at its prompt waiting for you is exactly `idle`. Not `working`:
     // nothing is running, and idle is also the one state that never flashes for
@@ -64,7 +86,7 @@ async function describe(proc: AgentProcess, launchId: string | undefined): Promi
     errored: false,
     subagentActive: false,
     todos: [],
-    bgAgentStarts: [],
+    agentLastSeen: [],
     origin: "wsl",
     // Only claim Ghostty when the tab came from a deck launch, which is the one
     // case we know the terminal for. Otherwise leave it unknown and let the focus

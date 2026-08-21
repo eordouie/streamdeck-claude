@@ -31,6 +31,18 @@ export interface SessionEvent {
   prompt?: string;
   /** Launch correlation ID supplied by the Stream Deck provider launcher. */
   launchId?: string;
+  /** CC's `agent_id` — present on every hook fire that happened INSIDE a
+   *  subagent (tool events included), absent on main-thread fires. This is
+   *  the discriminator that makes depth-counting unnecessary: SubagentStart/
+   *  SubagentStop are NOT a matched pair (measured live 2026-08-20: 21 starts
+   *  vs 178 stops in one workflow session — workflow agents fire stops
+   *  without ever firing starts). */
+  agentId?: string;
+  /** Ids of still-running subagents from CC's `background_tasks`, carried by
+   *  SubagentStop ONLY (no other event has the field — probed live). An
+   *  authoritative snapshot: present-but-empty means "none running", absent
+   *  (undefined) means the event predates the hook capturing it. */
+  bgIds?: string[];
 }
 
 /** What the icon needs, derived from the event log. The session's busy/idle
@@ -51,15 +63,16 @@ export interface DerivedState {
   subagentDepth: number;
   /** Most recent TodoWrite snapshot; empty until the agent calls TodoWrite. */
   todos: TodoStatus[];
-  /** Outstanding background-agent starts (event timestamps, oldest first).
-   *  Deliberately NOT reset at turn boundaries, unlike `subagentDepth`:
-   *  harness-tracked background agents outlive the turn that spawned them,
-   *  and the reset made them invisible the moment the turn ended. Leak
-   *  tolerance comes from the consumer instead — `liveBgAgents` ages every
-   *  entry out after BG_AGENT_TTL_MS, so an unmatched start (they happen:
-   *  observed start=30/stop=26 in real logs) fades instead of stranding a
-   *  badge forever. Capped at BG_AGENT_CAP, newest kept. */
-  bgAgentStartTimes: number[];
+  /** One timestamp per believed-live subagent: the ts of its last observed
+   *  event (old-format entries with no agentId: the SubagentStart ts, never
+   *  refreshed). Deliberately NOT reset at turn boundaries, unlike
+   *  `subagentDepth`: background agents outlive the turn that spawned them,
+   *  and the reset made them invisible the moment the turn ended. Ghost
+   *  tolerance comes from the consumer (`liveBgAgents` ages entries out
+   *  after BG_AGENT_TTL_MS) plus the authoritative `bgIds` snapshot on every
+   *  new-format SubagentStop, which prunes ids CC no longer lists. Drives
+   *  both the +N agents badge and the `subagent` family motif. */
+  agentLastSeen: number[];
   /** Which terminal hosts this session (from the SessionStart hook stamp). */
   terminal: TerminalKind;
   /** Transcript path (from the SessionStart hook stamp); "" when unknown.
@@ -77,32 +90,52 @@ export interface DerivedState {
  *  permission/input prompt (Notification fired mid-turn — CC actually needs
  *  the user) from an idle reminder (Notification fired ~60s after Stop —
  *  CC's bell-like "you've gone afk" nudge, not an actual question). */
-interface ReducerState extends DerivedState {
+interface ReducerState extends Omit<DerivedState, "agentLastSeen"> {
   inTurn: boolean;
+  /** Old-format SubagentStart timestamps (events carrying no agentId), FIFO,
+   *  capped at BG_AGENT_CAP. Kept only for logs written before the hook
+   *  captured agent_id; superseded whenever a bgIds snapshot arrives. */
+  legacyStarts: number[];
+  /** agentId → ts of its last observed event. The live-set replacement for
+   *  depth counting: upserted by ANY event fired inside that agent, removed
+   *  by its own SubagentStop, reconciled by bgIds snapshots. */
+  agentsSeen: Record<string, number>;
 }
 
-const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], bgAgentStartTimes: [], terminal: "unknown", transcriptPath: "", firstPrompt: "", launchId: undefined, inTurn: false };
+const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], legacyStarts: [], agentsSeen: {}, terminal: "unknown", transcriptPath: "", firstPrompt: "", launchId: undefined, inTurn: false };
 
-/** How long an outstanding background-agent start stays visible without its
- *  SubagentStop. Long enough for real audits, short enough that a leaked
- *  start is a temporary +1, not a permanent lie. */
-export const BG_AGENT_TTL_MS = 30 * 60_000;
+/** How long an agent stays believed-live with no further sighting. Must
+ *  exceed the longest legitimate silent gap — an agent inside one long tool
+ *  call emits nothing between its PreToolUse and PostToolUse, and the Bash
+ *  tool caps at 10 min — so 15 min. In practice ghosts die much sooner: any
+ *  later SubagentStop carries the authoritative bgIds snapshot that prunes
+ *  ids CC no longer lists; this TTL only covers the no-more-stops tail. */
+export const BG_AGENT_TTL_MS = 15 * 60_000;
 const BG_AGENT_CAP = 16;
 
-/** The badge count at `now`: outstanding starts younger than the TTL. */
-export function liveBgAgents(starts: readonly number[], now: number): number {
-  return starts.filter((t) => now - t < BG_AGENT_TTL_MS).length;
+/** The live-agent count at `now`: entries seen within the TTL. */
+export function liveBgAgents(lastSeen: readonly number[], now: number): number {
+  return lastSeen.filter((t) => now - t < BG_AGENT_TTL_MS).length;
 }
 
 export function reduceEvents(events: readonly SessionEvent[]): DerivedState {
   let state = ZERO;
   for (const ev of events) state = applyEvent(state, ev);
-  // Strip the internal flag — callers only get the public projection.
-  const { inTurn: _inTurn, ...derived } = state;
-  return derived;
+  // Strip the internal bookkeeping — callers only get the public projection.
+  const { inTurn: _inTurn, legacyStarts, agentsSeen, ...derived } = state;
+  return { ...derived, agentLastSeen: [...legacyStarts, ...Object.values(agentsSeen)] };
 }
 
 function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
+  // Any event carrying agentId was fired from inside that subagent — proof it
+  // is alive right now. Upserting on EVERY such event (not just
+  // SubagentStart) is what makes workflow agents visible at all: they fire
+  // stops without starts, so their first tool call is the only birth
+  // certificate they ever present. SubagentStop is excluded — it is the
+  // agent announcing its own death, handled in its case below.
+  if (ev.agentId !== undefined && ev.event !== "SubagentStop") {
+    state = { ...state, agentsSeen: { ...state.agentsSeen, [ev.agentId]: ev.ts } };
+  }
   switch (ev.event) {
     case "SessionStart":
       return { ...ZERO, terminal: normaliseTerm(ev.term), transcriptPath: ev.transcript ?? "", launchId: ev.launchId };
@@ -226,18 +259,44 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
         // ignoring it is what let the red tile outlive the truth by a day.
         errored: false,
         subagentDepth: state.subagentDepth + 1,
-        bgAgentStartTimes: [...state.bgAgentStartTimes, ev.ts].slice(-BG_AGENT_CAP),
+        // New-format starts (agentId) are already in agentsSeen via the
+        // upsert above; only old-format events feed the legacy FIFO list.
+        legacyStarts: ev.agentId === undefined ? [...state.legacyStarts, ev.ts].slice(-BG_AGENT_CAP) : state.legacyStarts,
       };
 
-    case "SubagentStop":
+    case "SubagentStop": {
+      let agentsSeen = state.agentsSeen;
+      let legacyStarts = state.legacyStarts;
+      if (ev.bgIds !== undefined) {
+        // Authoritative snapshot of still-running subagents: prune ids CC no
+        // longer lists, adopt ids we never saw an event for (stamped at this
+        // event's ts), keep known timestamps. The legacy list is superseded —
+        // any old-format agent still running is in the snapshot by id.
+        const next: Record<string, number> = {};
+        for (const id of ev.bgIds) next[id] = agentsSeen[id] ?? ev.ts;
+        agentsSeen = next;
+        legacyStarts = [];
+      }
+      if (ev.agentId !== undefined) {
+        // The stopper can appear in its own snapshot (observed live
+        // 2026-08-20) — it is stopping, so remove it AFTER applying it.
+        if (ev.agentId in agentsSeen) {
+          agentsSeen = { ...agentsSeen };
+          delete agentsSeen[ev.agentId];
+        }
+      } else {
+        // Old-format stop: FIFO-retire the oldest outstanding start. With
+        // unpaired events the bias favors newer spawns staying visible.
+        legacyStarts = legacyStarts.slice(1);
+      }
       return {
         ...state,
         errored: false,
         subagentDepth: Math.max(0, state.subagentDepth - 1),
-        // FIFO: retire the oldest outstanding start. With unpaired events the
-        // bias favors newer spawns staying visible; ghosts age out via TTL.
-        bgAgentStartTimes: state.bgAgentStartTimes.slice(1),
+        agentsSeen,
+        legacyStarts,
       };
+    }
 
     default:
       return state;
@@ -268,6 +327,11 @@ export function parseEventLog(text: string): SessionEvent[] {
           transcript: typeof obj.transcript === "string" ? obj.transcript : undefined,
           prompt: typeof obj.prompt === "string" ? obj.prompt : undefined,
           launchId: typeof obj.launchId === "string" ? obj.launchId : undefined,
+          agentId: typeof obj.agentId === "string" ? obj.agentId : undefined,
+          bgIds:
+            Array.isArray(obj.bgIds) && obj.bgIds.every((s: unknown) => typeof s === "string")
+              ? (obj.bgIds as string[])
+              : undefined,
         });
       }
     } catch {
@@ -287,8 +351,11 @@ export function parseEventLog(text: string): SessionEvent[] {
  *  that as idle and masked the question). "waiting" with no flag still shows
  *  a generic prompt: CC itself says it is blocked on the user, and a lost
  *  hook event must not fake an idle. An INTERRUPT emits no hook event at
- *  all — the flags stay set in the log while pid.json flips "idle" — so idle
- *  always reads as idle, or tiles freeze on prompts that no longer exist. */
+ *  all — the flags stay set in the log while pid.json flips "idle" — so an
+ *  idle rawStatus always ignores the awaiting* flags, or tiles freeze on
+ *  prompts that no longer exist. The one thing that outranks idle is
+ *  subagentActive: background agents outlive the turn, and a session whose
+ *  agents are still working is not idle to the user. */
 export function interactiveState(
   rawStatus: string,
   s: {
@@ -307,5 +374,12 @@ export function interactiveState(
     if (rawStatus === "waiting") return "awaiting";
     return s.subagentActive ? "subagent" : "working";
   }
+  // The turn can end while background subagents keep working — they outlive
+  // it by design, and CC flips pid.json to idle the moment the main loop
+  // stops. The session's WORK is still running, so the family keeps walking
+  // until the agents actually finish (subagentActive ages out via the
+  // liveBgAgents TTL and the bgIds snapshots). Interrupt semantics survive:
+  // the awaiting* flags are still ignored when idle.
+  if (s.subagentActive) return "subagent";
   return "idle";
 }

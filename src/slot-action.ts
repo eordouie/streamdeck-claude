@@ -108,16 +108,20 @@ export class SlotAction extends SingletonAction {
 
   override onKeyDown(ev: KeyDownEvent): void {
     const slot = this.state.get(ev.action.id);
-    if (!slot?.clipboardPayload || !slot.sessionId || !slot.origin) {
+    if (!slot?.clipboardPayload || !slot.sessionId || !slot.origin || !slot.provider) {
       // Empty slot: a free key is a "new tab" launcher. One gesture, one
       // meaning, so it fires here on KeyDown — the press cannot mean anything
       // else, and there is no second gesture to disambiguate on release.
+      // `provider` joins the bound-slot test rather than defaulting to Claude:
+      // a slot that cannot say which agent it holds must not have that agent
+      // guessed for it, because the guess ends in a wipe or a SIGTERM.
       void this.openAgentTab(ev);
       return;
     }
     const id = ev.action.id;
     const sessionId = slot.sessionId;
     const origin = slot.origin;
+    const provider = slot.provider;
     const pid = slot.pid;
     // Sans pid on garde le palier 1 (wipe du log) mais ni l'anneau KILL ni le
     // palier 2.
@@ -127,7 +131,7 @@ export class SlotAction extends SingletonAction {
       // Palier 1 atteint : wipe le log. L'anneau "KILL" ne s'arme que si un kill
       // peut effectivement suivre.
       if (killable) slot.killArmingSince = Date.now();
-      void this.runLongPress(ev, sessionId, origin, slot.provider ?? "claude");
+      void this.runLongPress(ev, sessionId, origin, provider);
     }, LONG_PRESS_MS);
     this.pressTimers.set(id, wipeTimer);
     if (killable) {
@@ -136,7 +140,7 @@ export class SlotAction extends SingletonAction {
         // Garde killArmingSince posé pendant le kill pour que l'anneau s'affiche
         // plein (progress clampé à 1) le temps du SIGTERM, puis le libère — sinon
         // le dernier frame visible plafonne à ~0.95 avant de disparaître.
-        void this.runKill(ev, pid!, sessionId, origin, slot.provider ?? "claude").finally(() => {
+        void this.runKill(ev, pid!, sessionId, origin, provider).finally(() => {
           slot.killArmingSince = undefined;
         });
       }, KILL_PRESS_MS);

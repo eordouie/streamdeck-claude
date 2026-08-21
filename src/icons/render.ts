@@ -26,8 +26,9 @@ export interface IconOptions {
   state: SessionState;
   slot: number;
   label: string;
-  /** Bottom-line agent tag: "codex", or "" for Claude. Omitted/"" draws no such
-   *  line — the tag marks the exception, and a bare tile reads as Claude. */
+  /** Bottom-line agent tag, e.g. "codex". Omitted/"" draws no such line — the
+   *  tag marks the EXCEPTION, and which provider goes bare is `untaggedAgent` in
+   *  agent-config.ts, not a fact about Claude. */
   providerLabel?: string;
   /** Animation frame, 0..ANIMATION_FRAMES-1. */
   frame?: number;

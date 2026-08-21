@@ -17,10 +17,12 @@ import {
   WSL_SESSIONS_DIR,
   WSL_SESSIONS_DIR_FROM_WIN,
 } from "./env.js";
-import { interactiveState, parseEventLog, reduceEvents, type DerivedState, type TodoStatus } from "./session-events.js";
-import type { AgentProvider, AgentSession } from "./provider-types.js";
+import { interactiveState, liveBgAgents, parseEventLog, reduceEvents, type DerivedState, type TodoStatus } from "./session-events.js";
+import type { AgentProvider, AgentSession, ProviderId } from "./provider-types.js";
+import { loadAgentConfig, providerTag } from "./agent-config.js";
 
-export type SessionProvider = "claude" | "codex";
+/** Open by design — the set of agents is config, not a type. See agent-config.ts. */
+export type SessionProvider = ProviderId;
 
 /** WSL or Windows-native session. Claude Code sessions are backed by the
  *  provider's pid JSON; Codex sessions are backed by the bridge records that
@@ -115,11 +117,12 @@ export interface SessionInfo extends AgentSession {
   pid?: number;
   sessionId: string;
   cwd: string;
-  /** Bottom-line agent tag: "codex" for Codex, absent for Claude. Ehsan's call
-   *  (2026-08-17, after seeing both labelled): the tag exists to mark the
-   *  EXCEPTION, and writing `claude` on almost every tile is noise on a 72px key
-   *  — you can read a bare tile as Claude. Model and effort were tried here and
-   *  removed for the same reason. */
+  /** Bottom-line agent tag, or absent for the ONE provider config calls
+   *  untagged. Ehsan's call (2026-08-17, after seeing both labelled): the tag
+   *  marks the EXCEPTION, and writing `claude` on almost every tile is noise on
+   *  a 72px key. Which provider goes bare is `untaggedAgent` in
+   *  agent-config.ts — a display preference, not a rule about Claude. Model and
+   *  effort were tried here and removed for the same reason. */
   providerLabel?: string;
   /** Project label. For a bg job: its Claude Code `name` if set, else
    *  basename(cwd) — see `bgJobLabel`. For an interactive session: basename(cwd),
@@ -139,13 +142,15 @@ export interface SessionInfo extends AgentSession {
   awaitingPlan: boolean;
   /** Last turn ended with StopFailure and no UserPromptSubmit since. */
   errored: boolean;
-  /** At least one subagent currently running. */
+  /** At least one subagent believed running right now (live-set from the
+   *  event log, TTL-aged) — keeps the family motif walking across turn
+   *  boundaries while background agents work. */
   subagentActive: boolean;
   /** Snapshot of the last TodoWrite call's statuses; empty if none seen. */
   todos: TodoStatus[];
-  /** Outstanding background-agent start timestamps (cross-turn, TTL-aged by
+  /** Last-seen timestamp per believed-live subagent (cross-turn, TTL-aged by
    *  the renderer via liveBgAgents) — drives the +N agents badge. */
-  bgAgentStarts: number[];
+  agentLastSeen: number[];
   origin: SessionOrigin;
   /** Terminal host (from the event-log SessionStart stamp); drives slot-press focus. */
   terminal: TerminalKind;
@@ -235,7 +240,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
         const kind: "interactive" | "bg" = raw.kind === "bg" ? "bg" : "interactive";
 
         let derived: DerivedState = {
-          awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], bgAgentStartTimes: [], terminal: "unknown", transcriptPath: "", firstPrompt: "",
+          awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], agentLastSeen: [], terminal: "unknown", transcriptPath: "", firstPrompt: "",
         };
         // Un agent bg tourne en headless et ne nourrit pas le pipeline de hooks :
         // son json (status/waitingFor) est la source de vérité. On saute donc
@@ -309,9 +314,9 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           awaitingQuestion: derived.awaitingQuestion,
           awaitingPlan: derived.awaitingPlan,
           errored: derived.errored,
-          subagentActive: derived.subagentDepth > 0,
+          subagentActive: derived.subagentDepth > 0 || liveBgAgents(derived.agentLastSeen, Date.now()) > 0,
           todos: derived.todos,
-          bgAgentStarts: derived.bgAgentStartTimes,
+          agentLastSeen: derived.agentLastSeen,
           origin: src.origin,
           terminal: derived.terminal,
           transcriptPath: derived.transcriptPath,
@@ -374,7 +379,7 @@ async function readOneCodexSource(src: SessionSourceDir): Promise<SessionInfo[]>
           errored: false,
           subagentDepth: 0,
           todos: [],
-          bgAgentStartTimes: [],
+          agentLastSeen: [],
           terminal: "unknown",
           transcriptPath: "",
           firstPrompt: "",
@@ -407,7 +412,7 @@ async function readOneCodexSource(src: SessionSourceDir): Promise<SessionInfo[]>
           // tag, which frees the top line to be the project/deck word exactly
           // like Claude's slots.
           label: basename(raw.cwd),
-          providerLabel: "codex",
+          providerLabel: providerTag("codex", await loadAgentConfig()),
           title,
           firstPrompt: derived.firstPrompt,
           deckName: "",
@@ -421,9 +426,9 @@ async function readOneCodexSource(src: SessionSourceDir): Promise<SessionInfo[]>
           awaitingQuestion: derived.awaitingQuestion,
           awaitingPlan: derived.awaitingPlan,
           errored: derived.errored,
-          subagentActive: derived.subagentDepth > 0,
+          subagentActive: derived.subagentDepth > 0 || liveBgAgents(derived.agentLastSeen, Date.now()) > 0,
           todos: derived.todos,
-          bgAgentStarts: derived.bgAgentStartTimes,
+          agentLastSeen: derived.agentLastSeen,
           origin: src.origin,
           terminal: derived.terminal === "unknown" ? normaliseTerm(raw.terminal) : derived.terminal,
           transcriptPath,
@@ -635,7 +640,7 @@ export async function pruneDeadSessions(
 export async function wipeSessionEventLog(
   sessionId: string,
   origin: SessionOrigin,
-  provider: SessionProvider = "claude",
+  provider: SessionProvider,
 ): Promise<{ wiped: boolean; error?: string }> {
   const src = SESSION_SOURCES.find((s) => s.origin === origin && s.provider === provider);
   if (!src) return { wiped: false, error: `no source for ${provider}/${origin}` };

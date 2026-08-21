@@ -14,21 +14,21 @@ import {
 } from "./naming-policy.js";
 
 test("canonicalTabTitle appends the deck word to the pid placeholder", () => {
-  assert.equal(canonicalTabTitle({ pid: 84213, deckName: "mirrors" }), "claude-84213-mirrors");
+  assert.equal(canonicalTabTitle({ provider: "claude", pid: 84213, deckName: "mirrors" }), "claude-84213-mirrors");
 });
 
 test("canonicalTabTitle without a word is the bare pid placeholder", () => {
-  assert.equal(canonicalTabTitle({ pid: 84213, deckName: "" }), "claude-84213");
-  assert.equal(canonicalTabTitle({ pid: 84213, deckName: "   " }), "claude-84213");
+  assert.equal(canonicalTabTitle({ provider: "claude", pid: 84213, deckName: "" }), "claude-84213");
+  assert.equal(canonicalTabTitle({ provider: "claude", pid: 84213, deckName: "   " }), "claude-84213");
 });
 
 test("canonicalTabTitle rejects words the title grammar can't hold", () => {
-  assert.equal(canonicalTabTitle({ pid: 1, deckName: "two words" }), "claude-1");
-  assert.equal(canonicalTabTitle({ pid: 1, deckName: "x".repeat(25) }), "claude-1");
+  assert.equal(canonicalTabTitle({ provider: "claude", pid: 1, deckName: "two words" }), "claude-1");
+  assert.equal(canonicalTabTitle({ provider: "claude", pid: 1, deckName: "x".repeat(25) }), "claude-1");
 });
 
 test("canonicalTabTitle keeps hyphenated words", () => {
-  assert.equal(canonicalTabTitle({ pid: 7, deckName: "pizza-fan" }), "claude-7-pizza-fan");
+  assert.equal(canonicalTabTitle({ provider: "claude", pid: 7, deckName: "pizza-fan" }), "claude-7-pizza-fan");
 });
 
 test("canonicalTabTitle treats the provider as nothing but a prefix", () => {
@@ -44,8 +44,10 @@ test("canonicalTabTitle treats the provider as nothing but a prefix", () => {
 test("canonicalTabTitle falls back per provider when the pid is unknown", () => {
   assert.equal(canonicalTabTitle({ provider: "codex", deckName: "" }), "codex-session");
   assert.equal(canonicalTabTitle({ provider: "claude", deckName: "" }), "claude-session");
-  // No provider at all defaults to claude, preserving pre-Codex behaviour.
-  assert.equal(canonicalTabTitle({ deckName: "" }), "claude-session");
+  // An agent this repo has never heard of gets the identical shape — the
+  // provider is an opaque string here, and there is no default to fall into.
+  assert.equal(canonicalTabTitle({ provider: "gemini", deckName: "" }), "gemini-session");
+  assert.equal(canonicalTabTitle({ provider: "gemini", pid: 7, deckName: "pizza-fan" }), "gemini-7-pizza-fan");
 });
 
 test("sidecarMaxAgeMs: deck names persist, event logs do not", () => {
