@@ -305,6 +305,15 @@ terminal kind at SessionStart, clips each `UserPromptSubmit` prompt (200
 chars) so the reducer can capture the session's first substantial prompt for
 naming context. The `.deckname` sidecar survives SessionEnd for resume.
 
+**The Codex bridge records only tty-backed sessions**
+(`hooks/codex-notification.sh`, 2026-08-21). SessionStart requires the resolved
+codex ancestor to have a terminal on fd 0, and later events never create a
+record SessionStart refused — every codex frontend shares `~/.codex` and its
+hooks, so `codex mcp-server` under a Claude session and the ChatGPT app's
+bundled `codex app-server` otherwise tile as ghost sessions (see `LESSONS.md`).
+The `.ps1` mirror carries only the record-existence half — Windows has no cheap
+fd-0 probe from a hook.
+
 **No slot-number badge** on keys, and **no `showOk` checkmark** on a slot
 press — landing on the tab is the feedback. Nor on a kill: the checkmark covers
 the key for about a second, which is exactly when the tile is supposed to be seen

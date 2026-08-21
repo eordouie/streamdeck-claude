@@ -546,3 +546,28 @@ empty (old-CC lines make no claim; `[]` means nothing is running). The TTL
 that ages a silent agent out must exceed the longest single tool call — Bash
 caps at 10 min, so 15 — because an agent inside one long call emits nothing
 between its PreToolUse and PostToolUse.
+
+
+## CODEX_HOME hooks fire for every frontend
+
+A hook having fired is not evidence of a terminal session. `codex mcp-server`
+spawned by a Claude session and the ChatGPT desktop app's bundled
+`codex app-server` (`ChatGPT.app/Contents/Resources/codex`, comm literally
+`codex`) share `~/.codex` — hooks included — so both fired the deck bridge on
+their conversations and tiled as ghost codex sessions with live pids. One even
+OSC-2-stamped its HOST Claude tab's title (`tab title: pid=20905 ->
+"codex-20905"`), because the mcp-server inherits the Claude session's tty.
+
+The bridge now gates on the resolved codex ancestor holding a tty on fd 0,
+mirroring `readProcessIo`. Measured 2026-08-21: fd 0 is `tCHR /dev/ttysN` for
+a real TUI and a unix socket for both embedded cores. Two halves keep it
+airtight: SessionStart is the only place a record is born, and every later
+event requires the record to exist, so a refused session's event stream can
+never resurrect it.
+
+Testing gotcha: you cannot fake a codex ancestor for hook tests. A shebang
+script's `ps -o comm=` is `/bin/bash` (the kernel execs the interpreter), and
+a copied `/bin/bash` binary is SIGKILLed (rc 137) on this machine even outside
+the Bash-tool sandbox. Test `fd0_is_tty` against real pids — a live mcp-server
+must reject, a live TUI pid must accept — and exercise the reject branches by
+running the hook directly (the session's own parent chain has no codex).
