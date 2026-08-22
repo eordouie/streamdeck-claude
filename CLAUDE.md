@@ -167,7 +167,7 @@ currently uses `drawBaby`, but keep the field — the hen/chick and cat/kitten
 pairs that occupied this slot before both needed it. (The stegosaurus is that
 slot's third occupant: a hen went through four rejected rebuilds, a cat went
 through two more, and both got replaced outright rather than rebuilt a fifth
-or third time — see `LESSONS.md`.)
+or third time — see `docs/lessons/icon-rendering.md`.)
 
 Two drawing rules learned the hard way: **leg tops must tuck one unit under
 the body**, or the walk bob opens a seam; and a character darker than the key
@@ -296,9 +296,10 @@ exception, and `claude` written across almost every tile is noise on a 72px key.
 A bare tile reads as Claude.
 
 **Log every empty-slot launch, not just failures.** The launcher can exit 0
-having typed into the WRONG tab (the Cmd+T keystroke race, see `LESSONS.md`),
-which is indistinguishable from "the key did nothing", so `openAgentTab` logs
-`script=… launchId=…` on every invocation.
+having typed into the WRONG tab (the Cmd+T keystroke race, see
+`docs/lessons/terminal-focus-and-launch.md`), which is indistinguishable from
+"the key did nothing", so `openAgentTab` logs `script=… launchId=…` on every
+invocation.
 
 **Hook additions** (`hooks/notification.sh`): stamps `transcript_path` and the
 terminal kind at SessionStart, clips each `UserPromptSubmit` prompt (200
@@ -310,9 +311,9 @@ naming context. The `.deckname` sidecar survives SessionEnd for resume.
 codex ancestor to have a terminal on fd 0, and later events never create a
 record SessionStart refused — every codex frontend shares `~/.codex` and its
 hooks, so `codex mcp-server` under a Claude session and the ChatGPT app's
-bundled `codex app-server` otherwise tile as ghost sessions (see `LESSONS.md`).
-The `.ps1` mirror carries only the record-existence half — Windows has no cheap
-fd-0 probe from a hook.
+bundled `codex app-server` otherwise tile as ghost sessions (see
+`docs/lessons/agent-process-identity.md`). The `.ps1` mirror carries only the
+record-existence half — Windows has no cheap fd-0 probe from a hook.
 
 **No slot-number badge** on keys, and **no `showOk` checkmark** on a slot
 press — landing on the tab is the feedback. Nor on a kill: the checkmark covers
@@ -376,4 +377,8 @@ pass.
 `LESSONS.md` at the repo root — the Stream Deck app ignoring SIGTERM and
 rewriting profiles at quit, the `"col,row"` / `Pages.Current` profile format,
 the plugin running live from this working tree, private built-in action
-schemas, and why an identity you don't own is not an identity.
+schemas, why an identity you don't own is not an identity, telling a TUI from
+plumbing on fd 0, and subagent liveness. Area-specific lessons live in
+`docs/lessons/` (terminal focus + launching, agent process identity, icon
+rendering, headless helpers); `LESSONS.md` opens with the routing table that
+says which one to read for what you are touching.

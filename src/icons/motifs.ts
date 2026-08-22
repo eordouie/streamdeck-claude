@@ -216,7 +216,8 @@ const WALK_SPAN = 144;
  *  tile, leaving only two slivers of border. Not because clipping is
  *  unsupported — `text.ts` clips the marquee and always has — but because it
  *  wraps its `<clipPath>` in `<defs>`. Outside `<defs>` the Stream Deck app
- *  paints the clip's `<rect>` as ordinary content. See LESSONS.md. */
+ *  paints the clip's `<rect>` as ordinary content. See
+ *  docs/lessons/icon-rendering.md. */
 /** Walking pace in px/ms, derived once so every walk motif moves at the same
  *  speed whatever distance it has to cover. The subagent family is wider than
  *  a lone mascot and needs a longer span; the same legs must not sprint to
@@ -507,9 +508,10 @@ ${trunk}
 }
 
 /** A stegosaurus in left-facing profile — replaces the cat entirely (see
- *  LESSONS.md): the hen went through four rejected rebuilds, the cat went
- *  through two (ginger, then beige) and was still rejected, so this is a
- *  second animal-swap rather than a third cat rebuild. The iconic silhouette
+ *  docs/lessons/icon-rendering.md): the hen went through four rejected
+ *  rebuilds, the cat went through two (ginger, then beige) and was still
+ *  rejected, so this is a second animal-swap rather than a third cat
+ *  rebuild. The iconic silhouette
  *  carries almost all of the "cute" here — a fat round body, a low snout, a
  *  tapering row of plates (the "corrugated back"), a tail ending in the
  *  famous thagomizer spikes. v2 pushed it toward more anatomical accuracy
@@ -659,9 +661,10 @@ ${mouth}
 }
 
 /** A round panda in left-facing profile. The chibi/sitting direction (see
- *  git history and LESSONS.md) was explored across a contact-sheet review
- *  and even iterated on, but on reflection this side-profile original —
- *  cream body carrying the silhouette, black kept to the four spots that
+ *  git history and docs/lessons/icon-rendering.md) was explored across a
+ *  contact-sheet review and even iterated on, but on reflection this
+ *  side-profile original — cream body carrying the silhouette, black kept
+ *  to the four spots that
  *  read as "panda" (ears, eye patches, front leg + shoulder band, rear leg),
  *  a lifted charcoal with a rim light rather than true black so it doesn't
  *  read as a panda-shaped hole against the #0f1115 tile — is the one that

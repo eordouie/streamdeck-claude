@@ -198,7 +198,8 @@ export class SlotAction extends SingletonAction {
     try {
       // Log every launch, not just failures: the launcher can exit 0 having typed
       // into the WRONG tab (the keystroke race in ghostty-new-agent.sh, see
-      // LESSONS.md), which is indistinguishable from "the key did nothing".
+      // docs/lessons/terminal-focus-and-launch.md), which is indistinguishable
+      // from "the key did nothing".
       streamDeck.logger.info(`empty-slot launch: script=${spec.script} launchId=${launch.id}`);
       const command = buildLaunchCommand(spec, launch.id);
       const r = await spawnCapture(command.script, [], { timeoutMs: 15_000, env: command.env });
