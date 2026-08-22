@@ -1,5 +1,7 @@
 # Persistent `claude-xxxx-{word}` Tab Names Implementation Plan
 
+> **Status:** concluded — 2026-08-04
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ghostty tab titles always follow `claude-<pid>-<word>` once a session is named, and the one-word deck name survives session end / reboot so `claude --resume` reclaims it.

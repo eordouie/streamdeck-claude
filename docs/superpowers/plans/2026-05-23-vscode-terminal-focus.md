@@ -1,5 +1,7 @@
 # VS Code Terminal Focus Implementation Plan
 
+> **Status:** concluded — 2026-05-23
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Pressing a slot key bound to a Claude Code session running in a VS Code integrated terminal brings the matching VS Code window to the foreground, on Windows and macOS.
