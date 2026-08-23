@@ -1,6 +1,24 @@
-# CLAUDE.md
+# streamdeck-claude — Claude Code Context
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Stream Deck plugin mirroring live Claude Code session state (fork of
+julien-blanchon/claude-sessions, branch `ghostty-focus`; the plugin
+runs live from this working tree).
+
+## Project Data
+
+| Path | Contents |
+|---|---|
+| `src/` | TypeScript plugin source (tick loop, render pipeline, terminal focus, process scan) |
+| `com.julien.claudesessions.sdPlugin/` | Built plugin the Stream Deck app loads (`bin/plugin.js`, manifest, icons) |
+| `hooks/` + `scripts/` | Claude Code hook bridge + install/build scripts |
+| `.claude/skills/` | 2 repo-scoped skills (process introspection, WSL plugin dev) |
+| `LESSONS.md` + `docs/lessons/` | Distillate + on-demand topic files (split 2026-08-22) |
+| `docs/log/`, `docs/superpowers/plans/` | Effort logs and plans |
+
+## Lessons
+
+`LESSONS.md` (9 KB distillate + routing index) → `docs/lessons/*.md`
+topic files. Read the distillate before touching src/ or hooks/.
 
 ## What this is
 
@@ -382,3 +400,9 @@ plumbing on fd 0, and subagent liveness. Area-specific lessons live in
 `docs/lessons/` (terminal focus + launching, agent process identity, icon
 rendering, headless helpers); `LESSONS.md` opens with the routing table that
 says which one to read for what you are touching.
+
+## Where new facts go
+
+Workspace routing: [`~/Projects/CLAUDE.md`](../CLAUDE.md). Plugin
+gotchas → `LESSONS.md` / `docs/lessons/`; repo-scoped procedures →
+`.claude/skills/`; deck-wide capture runs via `/deck-capture`.
