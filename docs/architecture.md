@@ -116,7 +116,7 @@ Two thin hook scripts mirror each other:
 
 Both do exactly one thing: read the hook payload from stdin, extract `session_id` + `hook_event_name` (+ optional `tool_name`), and append a single JSON line — `{"ts":…,"event":…,"tool":…?}` — to `<sessionId>.events.ndjson` next to that side's session JSON files. `SessionStart` truncates the log first; `SessionEnd` unlinks it.
 
-The Windows hook is **not copied** — `scripts/install-hook.sh --target=windows` registers a PowerShell command that runs `hooks/notification.ps1` directly over `\\wsl.localhost\<distro>\…\hooks\notification.ps1`, so a single repo edit propagates to both sides. PID liveness handles the case where a CC process dies hard (no `SessionEnd`): the session disappears from display via `state-tracker.ts`'s `prevLiveIds` check, and the orphan event log is cleaned the next time CC reuses that sessionId (`SessionStart` truncate).
+The Windows hook is **not copied** — `scripts/install-hook.sh --target=windows` registers a PowerShell command that runs `hooks/notification.ps1` directly over `\\wsl.localhost\<distro>\…\hooks\notification.ps1`, so a single repo edit propagates to both sides. PID liveness handles the case where a CC process dies hard (no `SessionEnd`): the session disappears from display via `state-tracker.ts`'s `prevLiveIds` check, and orphan sidecars (event logs and `.deckname` files whose sid has no session file — sids are UUIDs and never reused) are removed by the grace-gated orphan sweep in `pruneDeadSessions` (`src/sessions.ts`).
 
 ## Project layout
 
@@ -132,28 +132,42 @@ The Windows hook is **not copied** — `scripts/install-hook.sh --target=windows
 │   ├── plugin.ts                         # entry, polling loop
 │   ├── slot-action.ts                    # per-slot SingletonAction
 │   ├── setup-action.ts                   # maintenance key (wipe logs + refresh)
-│   ├── sessions.ts                       # reads ~/.claude/sessions/
+│   ├── command-action.ts                 # fork: run-a-configured-script key
+│   ├── sessions.ts                       # session records (Claude + Codex bridge), deriveState, pruneDeadSessions
 │   ├── live-pids.ts                      # batched kill -0 / tasklist liveness
 │   ├── session-events.ts                 # pure state machine
 │   ├── state-tracker.ts                  # cross-tick bookkeeping
 │   ├── render-loop.ts                    # zip slots → setImage
 │   ├── env.ts                            # all path/UNC math (single source)
 │   ├── reload-watcher.ts                 # mtime-driven self-restart
-│   ├── warp-focus.ts                     # platform dispatcher
-│   ├── warp-focus-mac.ts                 # osascript activate + Cmd+digit / cycle
-│   ├── warp-focus-win.ts                 # PowerShell + AttachThreadInput + SendInput
-│   ├── warp-db.ts                        # read-only sqlite3 → (window, tab_index)
-│   ├── warp-cwd.ts                       # Windows UNC / drive normalizer for WSL paths
+│   ├── process-scan.ts                   # fork: ps scan for agent CLIs + fd-0 TUI-vs-plumbing verdict
+│   ├── provisional-sessions.ts           # fork: tiles for running agents with no record yet
+│   ├── agent-config.ts                   # fork: ~/.claude/streamdeck-agents.json loader
+│   ├── providers/                        # fork: per-provider adapters (claude, codex)
+│   ├── pending-launch.ts                 # fork: slot reservations keyed on the launch id
+│   ├── launch-command.ts / launch-tty.ts # fork: launch prefix + tty-under-launch-id join
+│   ├── kill-session.ts                   # fork: 3 s hold → SIGTERM/SIGKILL the session
+│   ├── kill-suppression.ts               # fork: killed tiles drop without the finished flash
+│   ├── deck-namer.ts                     # fork: one-word session names (headless claude -p)
+│   ├── tab-title.ts                      # fork: owned OSC 2 tab titles
+│   ├── terminal-focus.ts                 # dispatcher by terminal kind
+│   ├── ghostty-focus.ts / -mac.ts        # fork: exact Window-menu tab match
+│   ├── vscode-focus.ts / -mac.ts / -win.ts  # VS Code window raise (+ vscode-window-match.ts)
+│   ├── warp-focus.ts / -mac.ts / -win.ts # Warp tab focus (+ warp-db.ts, warp-cwd.ts)
 │   └── icons/                            # render pipeline (theme/motifs/states/text/render)
 ├── icons/                                # standalone reference SVGs (one per state)
 ├── hooks/
-│   ├── notification.sh                   # Bash hook (Linux/macOS/WSL)
-│   └── notification.ps1                  # PowerShell hook (Windows)
-└── scripts/
-    ├── install-hook.sh                   # merge hook into ~/.claude/settings.json
-    ├── link-plugin.sh                    # Windows symlink (mklink /D over UNC target)
-    ├── unlink-plugin.sh                  # remove the symlink
-    ├── reload-plugin.sh                  # touch the reload trigger
-    ├── render-icons.mjs                  # regenerate icons/*.svg from src/icons/
-    └── render-static-pngs.mjs            # rasterize manifest PNGs from assets/svg/
+│   ├── notification.sh / .ps1            # Claude Code hooks (bash / PowerShell mirrors)
+│   └── codex-notification.sh / .ps1      # fork: Codex lifecycle bridge
+├── scripts/
+│   ├── install-hook.sh                   # merge hook into ~/.claude/settings.json
+│   ├── install-codex-hook.sh             # fork: register the Codex bridge in ~/.codex
+│   ├── link-plugin.sh / unlink-plugin.sh # Windows symlink (mklink /D over UNC target)
+│   ├── reload-plugin.sh                  # touch the reload trigger
+│   ├── render-icons.mjs                  # regenerate icons/*.svg from src/icons/
+│   └── render-static-pngs.mjs            # rasterize manifest PNGs from assets/svg/
+├── docs/                                 # reference notes + log/ plans/ specs/ reference/
+│   └── lessons/                          # area-specific lessons (LESSONS.md routes to them)
+├── .claude/skills/                       # 2 repo-scoped skills
+└── LESSONS.md                            # fork gotchas distillate + routing index
 ```

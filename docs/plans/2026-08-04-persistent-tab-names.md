@@ -10,7 +10,7 @@
 
 **Tech Stack:** TypeScript ESM (Node 20 target, `strict: true`), rollup bundle, node:test via `tsx --test`, bash hook script.
 
-**Spec:** `docs/superpowers/specs/2026-08-03-persistent-tab-names-design.md`
+**Spec:** `docs/specs/2026-08-03-persistent-tab-names-design.md`
 
 ## Global Constraints
 

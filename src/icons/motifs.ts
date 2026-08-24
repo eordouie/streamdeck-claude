@@ -81,8 +81,9 @@ export function planPulse(frame: number, color: string): string {
 <line x1="58" y1="76" x2="76" y2="76" stroke="${color}" stroke-width="3" stroke-linecap="round" opacity="0.5"/>`;
 }
 
-/** Clawd, the Claude Code mascot, derived from `assets/clawd/clawd-idle-look.svg`
- *  (AGPL-3.0 — see assets/clawd/NOTICE.md). Two channels of life:
+/** Clawd, the Claude Code mascot, derived from
+ *  `com.julien.claudesessions.sdPlugin/assets/clawd/clawd-idle-look.svg`
+ *  (AGPL-3.0 — see NOTICE.md in that directory). Two channels of life:
  *    - breathe (scaleY 0.98..1 on the upper body, two beats per 12-frame loop)
  *      — driven by `frame`, naturally fits the 1.44 s motif cycle.
  *    - blink (~150 ms every 4 s) — driven by `Date.now()` because that cadence

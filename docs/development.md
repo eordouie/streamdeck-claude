@@ -1,12 +1,13 @@
 # Development
 
-There is no test suite and no lint script. Verify a change by running `pnpm build && pnpm sd:validate && pnpm sd:reload`, then watch the logs.
+`pnpm test` runs the tsx/node:test suite — 15 test files (`src/*.test.ts`). There is no lint script. For anything the tests don't reach, verify a change by running `pnpm build && pnpm sd:validate && pnpm sd:reload`, then watch the logs.
 
 ## pnpm scripts
 
 | Script | What it does |
 |---|---|
 | `pnpm build` | Rollup → `com.julien.claudesessions.sdPlugin/bin/plugin.js` (terser in prod, sourcemaps in watch) |
+| `pnpm test` | Run the tsx/node:test suite (`tsx --test src/*.test.ts`) |
 | `pnpm watch` | `rollup -w`; auto-touches the reload trigger after each rebuild |
 | `pnpm sd:reload` | Touch `~/.claude/.streamdeck-claude.reload` → plugin self-exits → SD app respawns it (~1 s) |
 | `pnpm sd:link` / `pnpm sd:unlink` | (Re)create / remove the Windows-side `mklink /D` into the SD `Plugins/` folder |
@@ -15,9 +16,14 @@ There is no test suite and no lint script. Verify a change by running `pnpm buil
 | `pnpm sd:dev` | Enable Stream Deck developer mode (one-time) |
 | `pnpm install:hook` | Idempotently merge the Notification + ExitPlanMode hooks into WSL/macOS `~/.claude/settings.json` |
 | `pnpm install:hook:windows` | Same for Windows `%USERPROFILE%\.claude\settings.json` (registers the `.ps1` over the WSL UNC path; no copy) |
+| `pnpm install:codex-hook` | Register the Codex lifecycle bridge (`hooks/codex-notification.sh`) in `~/.codex` |
+| `pnpm install:codex-hook:windows` | Same for Windows-native Codex (registers the `.ps1` mirror) |
 | `pnpm icons:render` | Regenerate `icons/*.svg` reference assets from `src/icons/` |
 | `pnpm icons:static` | Rasterize manifest PNGs from `assets/svg/` via `@resvg/resvg-js` |
 | `pnpm check:hooks` | Diff installed hooks against `scripts/install-hook.sh` to confirm the registration is current |
+| `pnpm check:codex-hooks` | Same for the Codex bridge registration |
+| `pnpm check:vscode` | Enumerate VS Code windows + show which one matches a given cwd (debug) |
+| `pnpm drill` | Synthesize fake sessions so the live deck walks every state (visual check, `scripts/drill-states.ts`) |
 
 The plugin also runs this check at runtime (`src/hook-check.ts`): on startup it logs a warning, and the **Setup key** shows an amber `HOOKS` badge, whenever a required event isn't registered catch-all — so stale config (the classic "permission padlock never clears") surfaces instead of silently producing wrong icons.
 
