@@ -10,3 +10,5 @@ dist/
 
 # Per-effort git worktrees (workspace convention; .claude/skills stays tracked)
 .claude/worktrees/
+
+.claude/
