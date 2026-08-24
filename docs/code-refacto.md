@@ -1,5 +1,7 @@
 # Code refactoring audit — `streamdeck-claude`
 
+> **Status:** superseded — points 1 and 5 shipped 2026-06; the repo is TypeScript-only, figures predate the icons split.
+
 Scope: `src/`, `scripts/`, `hooks/`, plus glue (`package.json`, `rollup.config.mjs`, `manifest.json`).
 Total today: ~1300 LOC (840 TS, 113 Python, 250 shell, 60 PowerShell, ~125 HTML/JS).
 

@@ -20,7 +20,7 @@ of upstream:
 | **One word per session** | A single cheap headless call names each session with one distinguishing word, once, after it has real context. The word labels the key *and* the Ghostty tab. |
 | **Attention flash** | A key flashes from the moment its session finishes or needs input until you press it (or reply). Static idle doesn't flash. |
 | **Per-slot mascots** | Each key position has its own walking, blinking pixel character on idle. |
-| **Command keys** | A first-party action that runs a configured script — used for `/pull-all`, Esc, new-session launchers, etc. |
+| **Command keys** | A first-party action that runs a configured script. Currently unused on the author's deck — the command keys were retired in favor of the sibling deck-signals plugin's ambient keys — but the action remains available. |
 | **Free slot = new tab** | Press an **empty** slot and you get one fresh Ghostty tab at a bare prompt. It runs no agent: you type `claude`, `codex`, or anything else yourself. The key is held for whatever you start there (2 min), so your session becomes that key's mascot. The launch environment lives in `[launch]` in `dotfiles/streamdeck/layout.toml`. |
 | **A key lights up when the agent starts** | ~1 s after you type `claude` or `codex`, not when the agent first writes something. A `ps` scan each tick claims any agent CLI attached to a terminal, so Codex — which announces nothing until you send it a message — still gets its tile immediately. A new session record also wakes the tick on creation instead of waiting out the 1 s poll. |
 | **Agent tag on the key** | A Codex session's key shows `codex` on its bottom line; a Claude session shows nothing there — the tag marks the exception, and a bare tile reads as Claude. Model and effort were tried here and removed: on a 72px key they read as noise. |
@@ -168,4 +168,4 @@ Logs land at `%APPDATA%\Elgato\StreamDeck\Plugins\com.julien.claudesessions.sdPl
 
 Code is MIT — see [`LICENSE`](LICENSE).
 
-The Clawd mascot used in the `idle` state — `assets/clawd/*.svg` and the renderer at `src/icons/motifs.ts::clawdIdleLook` — is derived from [rullerzhou-afk/clawd-on-desk](https://github.com/rullerzhou-afk/clawd-on-desk) and is licensed under **AGPL-3.0**. See [`com.julien.claudesessions.sdPlugin/assets/clawd/NOTICE.md`](com.julien.claudesessions.sdPlugin/assets/clawd/NOTICE.md) for the full attribution.
+The Clawd mascot used in the `idle` state — `com.julien.claudesessions.sdPlugin/assets/clawd/*.svg` and the renderer at `src/icons/motifs.ts::clawdIdleLook` — is derived from [rullerzhou-afk/clawd-on-desk](https://github.com/rullerzhou-afk/clawd-on-desk) and is licensed under **AGPL-3.0**. See [`com.julien.claudesessions.sdPlugin/assets/clawd/NOTICE.md`](com.julien.claudesessions.sdPlugin/assets/clawd/NOTICE.md) for the full attribution.
