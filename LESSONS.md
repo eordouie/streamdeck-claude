@@ -18,8 +18,8 @@ the area you are editing is not optional reading — check the table first.
 | `deck-namer.ts` or any headless `claude -p` helper in this repo | [`docs/lessons/headless-helpers.md`](docs/lessons/headless-helpers.md) |
 
 What stays below: editing deck profiles, running the plugin from this
-working tree, owned tab identity, telling a TUI from plumbing, and
-subagent liveness.
+working tree, owned tab identity, telling a TUI from plumbing, recorded
+sessions without terminals, and subagent liveness.
 
 ## The Stream Deck app ignores SIGTERM and rewrites profiles at quit
 
@@ -141,6 +141,28 @@ failing open is a phantom that never leaves.
 
 Side note also measured: macOS `ps` does **not** truncate `args=` when stdout is
 a pipe (a 1948-char line came through whole), in case argv is ever needed here.
+
+## A live recorded pid is not proof of a terminal session
+
+Ghost "options" tile (2026-08-25): Claude Desktop's local agent mode spawns a
+stream-json `claude` child that writes `~/.claude/sessions/<pid>.json`, fires
+hooks (a real events.ndjson), earns a deck name, and stays alive as long as
+the desktop conversation — 18 h observed, outliving every real session. Every
+signal the plugin trusted said "session": live pid, valid record,
+`kind: "interactive"`. What it lacks is a terminal — fd 0 is a unix socket,
+and the record says so itself: `entrypoint: "claude-desktop"` vs `"cli"`.
+
+Fix: deck membership requires the record to *declare* the terminal entrypoint
+(`terminalHostedEntry` in terminal-kind.ts — "cli" or a pre-field record).
+Allowlist, fails closed, same philosophy as the fd-0 verdict for scanned
+processes: no proof of a terminal, no tile.
+
+Two placement rules for whoever touches this next: filter at **display level**
+(state-tracker), never in the reader — a record dropped at read time is exempt
+from `pruneDeadSessions` and thrashes the json cache, so its files would sit
+unread-but-re-stat'd forever after death; and hidden sessions must be skipped
+in the naming loop, or every desktop conversation burns a headless naming call
+and a deck word.
 
 ## SubagentStart and SubagentStop are not a pair
 
