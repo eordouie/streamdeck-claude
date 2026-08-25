@@ -3,7 +3,7 @@ import { platform } from "node:os";
 import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
 import type { SessionState } from "./icons/index.js";
-import { normaliseTerm, type TerminalKind } from "./terminal-kind.js";
+import { normaliseTerm, terminalHostedEntry, type TerminalKind } from "./terminal-kind.js";
 import { derivedTranscriptPath, readFirstUserPrompt, readSessionTitle } from "./transcript-title.js";
 import { assignedName, maybeName, NAMER_CWD, touchSidecar } from "./deck-namer.js";
 import { bgJobLabel, canonicalTabTitle, PRUNE_GRACE_MS, sidecarMaxAgeMs } from "./naming-policy.js";
@@ -91,6 +91,9 @@ interface RawSession {
   name?: string;
   /** "interactive" | "bg" (Claude Code 2.1.x). Absent sur les anciennes versions. */
   kind?: string;
+  /** How the process was started: "cli" for a terminal TUI; other values
+   *  ("claude-desktop", …) are app-driven sessions with no tab. */
+  entrypoint?: string;
   /** Pour les bg en attente : ex. "permission prompt". */
   waitingFor?: string;
   /** bg only: this job's own id. */
@@ -168,6 +171,11 @@ export interface SessionInfo extends AgentSession {
   deckName: string;
   /** "interactive" par défaut si le json n'a pas de champ `kind`. */
   kind: "interactive" | "bg";
+  /** Declared entrypoint from the record ("cli", "claude-desktop", …).
+   *  Undefined for old records, Codex bridge records, and provisional
+   *  sessions. Gates deck membership via terminalHostedEntry — see
+   *  terminal-kind.ts. */
+  entrypoint?: string;
   /** Statut brut NON coercé du json pour les bg (ex. "waiting", "running"). undefined pour interactive ; à ne pas confondre avec rawStatus (coercé "busy"|"idle", inutilisé pour les bg). */
   bgStatus?: string;
   /** `waitingFor` du json pour les bg (ex. "permission prompt"). */
@@ -304,6 +312,7 @@ async function readOneSource(src: SessionSourceDir): Promise<SessionInfo[]> {
           startedAt: typeof raw.startedAt === "number" ? raw.startedAt : 0,
           rawStatus: status,
           kind,
+          entrypoint: typeof raw.entrypoint === "string" ? raw.entrypoint : undefined,
           bgStatus: kind === "bg" ? raw.status : undefined,
           bgWaitingFor: kind === "bg" ? raw.waitingFor : undefined,
           jobId: kind === "bg" ? raw.jobId : undefined,
@@ -481,6 +490,10 @@ export async function readAllSessions(
   const liveSids: ReadonlySet<string> = new Set(sessions.map((s) => s.sessionId));
   sessions.forEach((s, i) => {
     if (s.kind === "bg") return;
+    // App-driven sessions (claude-desktop, …) never reach the deck, so they
+    // never earn a naming call — the word pool and the namer's headless
+    // spawns are for tiles the user can see and say.
+    if (!terminalHostedEntry(s.entrypoint)) return;
     if (words[i]) {
       s.label = words[i];
       s.deckName = words[i];

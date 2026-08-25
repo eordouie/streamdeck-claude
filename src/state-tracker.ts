@@ -9,6 +9,7 @@ import {
   type SessionInfo,
 } from "./sessions.js";
 import { filterLiveSessions } from "./live-pids.js";
+import { terminalHostedEntry } from "./terminal-kind.js";
 import { resolveParkedJobs } from "./bg-owner.js";
 import { readProvisionalSessions } from "./provisional-sessions.js";
 import { KillSuppression } from "./kill-suppression.js";
@@ -122,7 +123,15 @@ export function createStateTracker(
       if (s.kind === "bg" && live.has(s.sessionId)) bgStateBySid.set(s.sessionId, deriveState(s, true));
     }
     const liveEntries: DisplayEntry[] = sessions
-      .filter((s) => live.has(s.sessionId))
+      // Deck membership: a live pid with a session record is not enough — the
+      // record must declare a terminal entrypoint. The Claude Desktop app's
+      // agent mode keeps a recorded, hook-firing, LIVE `claude` child with no
+      // tab; without this gate it renders as a ghost tile that outlives every
+      // real session. Excluded from display only: the record keeps flowing
+      // through prune/cache bookkeeping so its files are still cleaned up
+      // when the app-driven process dies. bg jobs are deliberately tab-less
+      // and keep their tiles.
+      .filter((s) => live.has(s.sessionId) && (s.kind === "bg" || terminalHostedEntry(s.entrypoint)))
       .map((session) => {
         const bgSid = parkedJobs.get(session.sessionId);
         const parkedState = bgSid === undefined ? undefined : bgStateBySid.get(bgSid);
