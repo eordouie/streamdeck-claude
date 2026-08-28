@@ -63,8 +63,8 @@ Security → Accessibility) on the first key press.
 
 The deck *layout* (which key does what) is intentionally not in this repo — it
 lives in the author's dotfiles as a `layout.toml` plus an apply script, so this
-fork's diff against upstream stays upstreamable. See the "Fork notes" section of
-`CLAUDE.md`.
+fork's diff against upstream stays upstreamable. See the "Fork invariants"
+section of `agent-workflow.md`.
 
 ## State gallery
 
