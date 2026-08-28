@@ -17,12 +17,17 @@ WIN_USER="${WIN_USER:-julie}"
 WIN_HOME="/mnt/c/Users/${WIN_USER}"
 WSL_DISTRO="${WSL_DISTRO_NAME:-Ubuntu}"
 
-# event|matcher pairs — must stay in sync with scripts/install-hook.sh
+# event|matcher pairs — must stay in sync with the `merge` calls in
+# scripts/install-hook.sh AND with REQUIRED_HOOK_EVENTS in src/hook-check.ts.
+# A short list here is worse than no check: the run goes green while the
+# unlisted events are unregistered.
 EXPECTED_EVENTS=(
   "SessionStart|"
   "Notification|"
   "PreToolUse|"
   "PostToolUse|"
+  "PostToolUseFailure|"
+  "PermissionDenied|"
   "Stop|"
   "StopFailure|"
   "UserPromptSubmit|"
