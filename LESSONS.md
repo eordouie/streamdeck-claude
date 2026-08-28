@@ -192,3 +192,17 @@ empty (old-CC lines make no claim; `[]` means nothing is running). The TTL
 that ages a silent agent out must exceed the longest single tool call — Bash
 caps at 10 min, so 15 — because an agent inside one long call emits nothing
 between its PreToolUse and PostToolUse.
+
+## gh on this fork resolves PRs to upstream by default (2026-08-28)
+
+`gh pr create` here targets the fork parent (JulienCr/streamdeck-claude)
+unless told otherwise, and fails with "Base ref must be a branch"
+because upstream has no `ghostty-focus`. Every PR in this repo needs
+`--repo eordouie/streamdeck-claude`. Bit live on the task13-checkers PR.
+
+## hook-check.ts is not importable standalone on macOS (2026-08-28)
+
+`src/hook-check.ts` throws at import without `WSL_DISTRO_NAME` set:
+`env.ts` `assertResolved` expects rollup's build-time substitution.
+Verify the runtime checker with that env var set, or through the built
+plugin — never by bare ts-node/tsx import.
