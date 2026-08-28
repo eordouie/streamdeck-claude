@@ -1,4 +1,4 @@
-# streamdeck-claude — Claude Code Context
+# streamdeck-claude — Agent Context
 
 Stream Deck plugin mirroring live Claude Code session state (fork of
 JulienCr/streamdeck-claude, branch `ghostty-focus`; the plugin runs live
