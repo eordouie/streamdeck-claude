@@ -1,8 +1,8 @@
 # Fork design — eordouie / ghostty-focus
 
-> Extracted from CLAUDE.md 2026-08-24 (structure audit) — canonical home;
-> CLAUDE.md keeps the invariants + a pointer. File paths are repo-root-relative
-> unless prefixed.
+> Extracted from the repo L2 2026-08-24 (structure audit) — canonical home;
+> `agent-workflow.md` keeps the invariants + a pointer. File paths are
+> repo-root-relative unless prefixed.
 
 This checkout is Ehsan's fork (`origin` = eordouie/streamdeck-claude,
 `upstream` = JulienCr). Branch `ghostty-focus`, based on upstream's
