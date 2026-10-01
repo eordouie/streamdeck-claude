@@ -21,11 +21,9 @@ export interface GhosttyFocusOpts {
 }
 
 /**
- * Best-effort: select the Ghostty tab hosting the session at `cwd`. Ghostty
- * uses native macOS window tabs, so each tab is an AXWindow that System Events
- * can enumerate and AXRaise — same mechanism as the VS Code backend, but
- * tab-level rather than window-level. macOS only (Ghostty ships no Windows
- * build); silent no-op elsewhere.
+ * Best-effort: select the Ghostty tab hosting the session, by the exact title
+ * the plugin stamps on its terminal (ghostty-focus-mac.ts has the ladder).
+ * macOS only (Ghostty ships no Windows build); silent no-op elsewhere.
  */
 export async function focusGhosttyTabForCwd(
   cwd: string,

@@ -8,6 +8,7 @@ import { derivedTranscriptPath, readFirstUserPrompt, readSessionTitle } from "./
 import { assignedName, maybeName, NAMER_CWD, touchSidecar } from "./deck-namer.js";
 import { bgJobLabel, canonicalTabTitle, PRUNE_GRACE_MS, sidecarMaxAgeMs } from "./naming-policy.js";
 import { adoptParkedState, resolveBgOwners } from "./bg-owner.js";
+import { pruneCandidates } from "./record-liveness.js";
 import type { FocusTarget } from "./terminal-focus.js";
 import {
   WIN_CODEX_SESSIONS_DIR,
@@ -553,24 +554,26 @@ export async function readAllSessions(
 // GC policy (sidecarMaxAgeMs) so the two horizons stay side by side.
 
 /** Deletes the on-disk <pid>.json (and its now-orphan <sid>.events.ndjson) for
- *  every interactive session whose process is no longer live and whose file is
+ *  every session record whose OWN process is no longer live and whose file is
  *  older than PRUNE_GRACE_MS, bounding `~/.claude/sessions/` to live + just-died
  *  sessions instead of letting dead files pile up unread-but-re-stat'd forever.
- *  bg jobs are pruned too: a CLAIMED job's <pid>.json names its own dedicated
- *  `claude.exe` process, not the shared --bg-spare daemon the old exclusion was
- *  written for, so the file↔process mapping holds there as well. Best-effort —
- *  every unlink
- *  error is swallowed and simply retried next tick. Returns the count removed. */
+ *  Per record, not per session id: a dead twin of a resumed conversation used
+ *  to be spared forever because its id was live (record-liveness.ts). The
+ *  events log is the conversation's, so it goes only once no record of that id
+ *  is alive. bg jobs are pruned too: a CLAIMED job's <pid>.json names its own
+ *  dedicated `claude.exe` process, not the shared --bg-spare daemon the old
+ *  exclusion was written for, so the file↔process mapping holds there as well.
+ *  Best-effort — every unlink error is swallowed and simply retried next tick.
+ *  Returns the count removed. */
 export async function pruneDeadSessions(
   sessions: SessionInfo[],
-  liveIds: Set<string>,
+  liveRecords: ReadonlySet<SessionInfo>,
   now: number,
 ): Promise<number> {
   let pruned = 0;
   await Promise.all(
-    sessions
-      .filter((s) => !liveIds.has(s.sessionId))
-      .map(async (s) => {
+    pruneCandidates(sessions, liveRecords)
+      .map(async ({ record: s, dropEventsLog }) => {
         const src = SESSION_SOURCES.find((d) => d.origin === s.origin && d.provider === s.provider);
         if (!src) return;
         const jsonPath = join(src.path, s.provider === "codex" ? `${s.sessionId}.json` : `${s.pid}.json`);
@@ -587,10 +590,13 @@ export async function pruneDeadSessions(
           return; // lost a race / no permission — leave the orphan log, retry next tick
         }
         const eventsPath = join(src.path, `${s.sessionId}.events.ndjson`);
-        try {
-          await unlink(eventsPath);
-        } catch {
-          /* ENOENT or already gone — fine */
+        if (dropEventsLog) {
+          try {
+            await unlink(eventsPath);
+          } catch {
+            /* ENOENT or already gone — fine */
+          }
+          eventLogCache.delete(eventsPath);
         }
         // The .deckname sidecar deliberately survives its session: plain
         // `claude --resume` reuses the sid, so the word is reclaimed across
@@ -598,7 +604,6 @@ export async function pruneDeadSessions(
         // orphan sweep below.
         jsonCache.delete(jsonPath);
         codexJsonCache.delete(jsonPath);
-        eventLogCache.delete(eventsPath);
       }),
   );
 
