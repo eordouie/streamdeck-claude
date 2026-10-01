@@ -6,7 +6,8 @@
 > **Last updated:** 2026-10-01
 > **Next step:** Ehsan presses the `nebula` key (log should read
 > `terminal exact="claude-33832-nebula"` and land on the Humain tab), then
-> merges the PR. Follow-up candidate, not started: replace the keystroke tab
+> merges the PR. Open follow-ups, not started: (1) the hook's `SessionEnd`
+> deletes a shared events log (section below); (2) replace the keystroke tab
 > launcher with Ghostty 1.3's AppleScript `new tab`.
 
 ## Symptom (Ehsan, 2026-10-01)
@@ -144,6 +145,25 @@ Tests: 137/137 (127 before + 10). `tsc --noEmit` clean. `pnpm build`,
   `name of every terminal` answers at once.
 - AppleScript reserves `before`/`after` — a variable named `before` is a
   syntax error (-2741).
-- The suspended pid 69552 is still in ttys002's job table. The deck hides it;
-  `fg` in that tab resumes it, closing the tab ends it.
+- The suspended pid 69552 is still in ttys002's job table. The deck hides it.
+  Clear it with SIGKILL, not a normal exit — see the follow-up below.
+
+## Follow-up (open, not started): the hook layer has the same id-vs-process fault
+
+`hooks/notification.sh` keys the events log by session id: `SessionStart`
+truncates `<sid>.events.ndjson` and `SessionEnd` deletes it, whichever process
+of the conversation fires the event. With two processes on one conversation,
+the first one to END deletes the log the other is still writing. Concretely:
+if 69552 resumes (`fg`) and exits, or takes a SIGTERM, its `SessionEnd`
+deletes `f5e102c4.events.ndjson` under the live 67318. That session then loses
+its SessionStart line (terminal `ghostty`, transcript path): it stops being
+stamped (`ensureTabTitles` requires `terminal === "ghostty"`), and its key falls
+back to the slow back-compat focus chain until its next SessionStart.
+
+- Safe now: `kill -KILL 69552` — SIGKILL runs no hook; the plugin then prunes
+  `69552.json` and, since this fix, keeps the shared log.
+- Proper fix (needs Ehsan's go — the hook runs in every session): in
+  `SessionEnd`, skip the delete while another live `<pid>.json` carries the
+  same sid; or key the events log by pid. The plugin-side prune already
+  follows the first rule.
 

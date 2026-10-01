@@ -175,3 +175,10 @@ Rules:
   died": the prune path deletes files on that answer. `ps -p` with no
   surviving pid exits 1 silently — that one is a real answer.
 
+Still open at the hook layer (2026-10-01): `hooks/notification.sh` truncates
+`<sid>.events.ndjson` on `SessionStart` and deletes it on `SessionEnd`, for
+whichever process of the conversation fires. The first twin to exit deletes
+the log the other is still writing, and the survivor loses its terminal kind
+and its tab stamp. Until that is fixed, end a stale twin with SIGKILL (no hook
+runs). Effort log: `docs/log/2026-10-01-deck-wrong-sessions.md`.
+
