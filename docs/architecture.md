@@ -4,11 +4,11 @@ How the plugin discovers Claude Code and Codex sessions, derives state, and rend
 
 ## Session discovery
 
-Claude Code drops one JSON file per running CLI session under `~/.claude/sessions/<pid>.json`. The plugin reads that directory once per second, batches a `kill -0 <pid>` check to filter out stale files, sorts the live sessions by `startedAt`, and renders an SVG per Stream Deck slot via `setImage`.
+Claude Code drops one JSON file per running CLI session under `~/.claude/sessions/<pid>.json`. The plugin reads that directory once per second, batches one `ps -o pid=,stat= -p <pids>` check to filter out stale files (judged per record by its own pid — several records can share a session id; a stopped `T` process is kept but gets no key, see `record-liveness.ts`), sorts the live sessions by `startedAt`, and renders an SVG per Stream Deck slot via `setImage`.
 
 When the plugin runs on a Windows host, two session directories are scanned in parallel:
 
-- WSL sessions, read over a `\\wsl.localhost\<distro>\…` UNC path. PIDs are checked with `wsl.exe -d <distro> -- kill -0 <pid>`, batched into a single bash invocation.
+- WSL sessions, read over a `\\wsl.localhost\<distro>\…` UNC path. PIDs are checked with `wsl.exe -d <distro> -- ps -o pid=,stat= -p <pids>`, one invocation for all of them.
 - Windows-native sessions, read at `%USERPROFILE%\.claude\sessions`. PIDs are checked with one `tasklist.exe /NH /FO CSV` dump intersected in-process. (Per-PID `/FI "PID eq N"` filters AND together in tasklist — they don't OR — so per-PID filtering is impossible; one big dump is cheaper than N spawns.)
 
 Each `SessionInfo` carries an `origin: "wsl" | "windows"` tag so the right liveness check is applied. A 10s `CACHE_FALLBACK_MS` absorbs transient empty/errored spawns without flickering keys to "finished".
@@ -134,7 +134,8 @@ The Windows hook is **not copied** — `scripts/install-hook.sh --target=windows
 │   ├── setup-action.ts                   # maintenance key (wipe logs + refresh)
 │   ├── command-action.ts                 # fork: run-a-configured-script key
 │   ├── sessions.ts                       # session records (Claude + Codex bridge), deriveState, pruneDeadSessions
-│   ├── live-pids.ts                      # batched kill -0 / tasklist liveness
+│   ├── live-pids.ts                      # batched ps / tasklist liveness probe
+│   ├── record-liveness.ts                # fork: per-record liveness, suspended, prune candidates
 │   ├── session-events.ts                 # pure state machine
 │   ├── state-tracker.ts                  # cross-tick bookkeeping
 │   ├── render-loop.ts                    # zip slots → setImage
@@ -151,7 +152,8 @@ The Windows hook is **not copied** — `scripts/install-hook.sh --target=windows
 │   ├── deck-namer.ts                     # fork: one-word session names (headless claude -p)
 │   ├── tab-title.ts                      # fork: owned OSC 2 tab titles
 │   ├── terminal-focus.ts                 # dispatcher by terminal kind
-│   ├── ghostty-focus.ts / -mac.ts        # fork: exact Window-menu tab match
+│   ├── ghostty-focus.ts / -mac.ts        # fork: exact terminal-title match, Window-menu fallback
+│   ├── ghostty-script.ts                 # fork: Ghostty AppleScript (terminal titles, focus)
 │   ├── vscode-focus.ts / -mac.ts / -win.ts  # VS Code window raise (+ vscode-window-match.ts)
 │   ├── warp-focus.ts / -mac.ts / -win.ts # Warp tab focus (+ warp-db.ts, warp-cwd.ts)
 │   └── icons/                            # render pipeline (theme/motifs/states/text/render)
