@@ -41,6 +41,13 @@ path would not apply outside fullscreen anyway.
 Typing keystrokes into the existing instance is the only mechanism that works.
 Do not revisit without new upstream IPC support.
 
+**Premise superseded (2026-10-01):** Ghostty 1.3 ships an AppleScript
+dictionary (`Ghostty.app/Contents/Resources/Ghostty.sdef`) with `new tab`, which
+takes a surface configuration (command, initial input, environment variables),
+plus `input text` and `focus`. That is the upstream IPC this lesson was waiting
+for. It has not been tried as a replacement for the keystroke launcher; doing
+so would also remove the Cmd+T race described in the next lesson.
+
 ## A launcher exit code of 0 does not mean the command reached the right tab
 
 `spawnCapture` reported `code 0` for every empty-slot press in a burst that
@@ -77,3 +84,34 @@ match them and the key has somewhere to go. Where the link is missing or
 contested, resolve to **nothing** and say so: a bg tile is how a parked job
 tells you it needs an answer, and sending that press to a merely plausible tab
 means answering the wrong agent's question.
+
+## A hand-renamed Ghostty tab ignores every program title: match the terminal (2026-10-01)
+
+Ghostty's View > Change Tab Title… sets a tab-level name that beats OSC 2 for
+the life of the tab. The `nebula` session's tab was renamed by hand to
+`claude-33832-Humain` when the session moved on to the Humain project. From
+then on the stamp never showed in the tab strip or the Window menu, so the
+exact menu match missed on every press (the re-stamp tier too) and the key
+only activated Ghostty. Measured: an OSC 2 write to a normal tab's tty changed
+its menu name within 0.3 s; the same write to the renamed tab's tty changed
+nothing at 0.1, 0.5 or 2 s.
+
+The stamp was not lost, only hidden one layer down. In Ghostty 1.3's
+AppleScript a tab's `name` is the hand-set name and its terminal's `name` is
+the OSC 2 title: `claude-33832-Humain` vs `claude-33832-nebula`. Focus and stamp
+verification now match terminal titles (`ghostty-script.ts`) and keep the
+Window menu as the fallback.
+
+Mechanics:
+- It needs the Automation grant Stream Deck → Ghostty (one macOS prompt;
+  Stream Deck declares `NSAppleEventsUsageDescription`). The plugin logs
+  `ghostty api unavailable (<reason>)` once when it falls back.
+- `name of every terminal` and `every terminal whose name is "…"` answer at
+  once. `name of every tab of every window` hung for more than 80 s on 1.3.1:
+  avoid nested `every … of every …` specifiers.
+- A pending consent prompt blocks `osascript` until someone answers it, and the
+  slow tick awaits these calls. So the helper times out at 2 s and leaves the
+  API alone for 60 s after any failure.
+- The tab name and the deck word can now differ. Ehsan's call (2026-10-01):
+  the deck word stays fixed; the key must still reach the tab.
+

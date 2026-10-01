@@ -103,10 +103,11 @@ export function createStateTracker(
     // naming, cache pruning, dead-file sweeps — ever sees a session with no files.
     const sessions = [...recorded, ...(await readProvisionalSessions(recorded))];
     const livenessResult = await filterLiveSessions(sessions);
-    const live = livenessResult.live;
+    const { live, liveRecords, suspended } = livenessResult;
     const sourceList = SESSION_SOURCES.map((s) => s.origin).join("+");
     maybeLog(
       `tick: sources=${sourceList} sessions=${sessions.length} live=${live.size}` +
+        (suspended.size > 0 ? ` suspended=${[...suspended].map((s) => s.pid).join(",")}` : "") +
         (livenessResult.fromCache ? " (cached)" : "") +
         ` actions=${actionCount}` +
         (livenessResult.error ? ` livenessError="${livenessResult.error}"` : "") +
@@ -120,18 +121,29 @@ export function createStateTracker(
     const parkedJobs = resolveParkedJobs(sessions);
     const bgStateBySid = new Map<string, SessionState>();
     for (const s of sessions) {
-      if (s.kind === "bg" && live.has(s.sessionId)) bgStateBySid.set(s.sessionId, deriveState(s, true));
+      if (s.kind === "bg" && liveRecords.has(s)) bgStateBySid.set(s.sessionId, deriveState(s, true));
     }
     const liveEntries: DisplayEntry[] = sessions
-      // Deck membership: a live pid with a session record is not enough — the
-      // record must declare a terminal entrypoint. The Claude Desktop app's
-      // agent mode keeps a recorded, hook-firing, LIVE `claude` child with no
-      // tab; without this gate it renders as a ghost tile that outlives every
-      // real session. Excluded from display only: the record keeps flowing
-      // through prune/cache bookkeeping so its files are still cleaned up
-      // when the app-driven process dies. bg jobs are deliberately tab-less
-      // and keep their tiles.
-      .filter((s) => live.has(s.sessionId) && (s.kind === "bg" || terminalHostedEntry(s.entrypoint)))
+      // Deck membership is decided per RECORD, never per session id: a resumed
+      // conversation can leave a dead or suspended twin `<pid>.json` with the
+      // same id, and an id-keyed test gave that twin its own key (2026-10-01:
+      // a Ctrl+Z'd `crucible` beside the live one for three days).
+      //
+      // A suspended (stopped) process is alive but unusable until `fg`: no
+      // key. It stays in `liveRecords`, so prune keeps its files.
+      //
+      // A live pid with a session record is not enough either — the record
+      // must declare a terminal entrypoint. The Claude Desktop app's agent
+      // mode keeps a recorded, hook-firing, LIVE `claude` child with no tab;
+      // without this gate it renders as a ghost tile that outlives every real
+      // session. Excluded from display only: the record keeps flowing through
+      // prune/cache bookkeeping so its files are still cleaned up when the
+      // app-driven process dies. bg jobs are deliberately tab-less and keep
+      // their tiles.
+      .filter(
+        (s) =>
+          liveRecords.has(s) && !suspended.has(s) && (s.kind === "bg" || terminalHostedEntry(s.entrypoint)),
+      )
       .map((session) => {
         const bgSid = parkedJobs.get(session.sessionId);
         const parkedState = bgSid === undefined ? undefined : bgStateBySid.get(bgSid);
@@ -209,7 +221,7 @@ export function createStateTracker(
     if (!livenessResult.error && !livenessResult.fromCache) {
       // `recorded`, never `sessions`: a provisional session has no files, so the
       // sweep would resolve its synthetic id against a real source directory.
-      pruned = await pruneDeadSessions(recorded, live, Date.now());
+      pruned = await pruneDeadSessions(recorded, liveRecords, Date.now());
     }
     if (pruned > 0) streamDeck.logger.info(`pruned ${pruned} dead session file(s)`);
 

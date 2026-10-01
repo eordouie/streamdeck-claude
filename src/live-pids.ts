@@ -2,53 +2,65 @@ import { platform } from "node:os";
 import type { SessionInfo, SessionOrigin } from "./sessions.js";
 import { WSL_DISTRO } from "./env.js";
 import { spawnCapture, type CaptureResult } from "./spawn-capture.js";
+import { classifyRecords, parsePsStates } from "./record-liveness.js";
 
 /**
  * Returns the subset of sessions whose process is currently running.
  *
- * WSL sessions are checked via `wsl.exe -d <distro> -- kill -0`. Windows-native
- * sessions are checked via `tasklist.exe /FO CSV` — those PIDs live in a
- * different process namespace and aren't visible to WSL. Both checks run in
- * parallel.
+ * WSL / local sessions are checked with ONE `ps -o pid=,stat= -p <pids>` (via
+ * `wsl.exe -d <distro>` from a Windows-side plugin). Windows-native sessions
+ * are checked via `tasklist.exe /FO CSV` — those PIDs live in a different
+ * process namespace and aren't visible to WSL. Both checks run in parallel.
+ *
+ * `ps` replaced a per-pid `kill -0` because liveness has two questions and
+ * `kill -0` answers only the first: is the process there, and is it RUNNING.
+ * A Claude suspended with Ctrl+Z passes `kill -0` for as long as it sits in
+ * its shell's job table — three days, on 2026-10-01 — and kept a key the
+ * whole time. The stat column says `T`. See record-liveness.ts.
  *
  * Spawn-level failures (ENOENT, timeout, …) are absorbed for CACHE_FALLBACK_MS
  * using the previous good answer per origin, so a single flaky `wsl.exe` start
- * doesn't flicker every slot to "finished". Cleanly-empty stdout is NOT a
- * fallback trigger — for `kill -0` (per-PID echo) empty means all candidates
+ * doesn't flicker every slot to "finished". So is a nonzero exit WITH stderr:
+ * `ps` exits 1 silently when none of the pids exist (all dead — a real
+ * answer), but an error message means the probe itself failed, and reading
+ * that as "everything died" would prune every live session's files.
+ * Cleanly-empty stdout is NOT a fallback trigger — empty means all candidates
  * are dead, and for `tasklist` empty essentially never happens in practice.
  */
 
 interface OriginCache {
-  /** PIDs from the last successful tick, already intersected with the candidate list. */
-  lastLive: Set<number>;
-  lastLiveAt: number;
+  /** pid → stat from the last successful tick, already intersected with the candidate list. */
+  lastStates: Map<number, string>;
+  lastAt: number;
 }
 const CACHE_FALLBACK_MS = 10_000;
 const cache: Record<SessionOrigin, OriginCache> = {
-  wsl: { lastLive: new Set(), lastLiveAt: 0 },
-  windows: { lastLive: new Set(), lastLiveAt: 0 },
+  wsl: { lastStates: new Map(), lastAt: 0 },
+  windows: { lastStates: new Map(), lastAt: 0 },
 };
 
-/** Statuts bg considérés comme terminaux → le job est fini, on le retire.
- *  Best-effort (cf. spec §6) ; à confirmer en observant d'autres jobs. */
-const TERMINAL_BG_STATUS = new Set(["completed", "failed", "cancelled", "done"]);
-
-const isTerminalBgStatus = (status: string | undefined): boolean =>
-  TERMINAL_BG_STATUS.has((status ?? "").toLowerCase());
-
-async function checkWslLive(pids: number[]): Promise<{ live: Set<number>; error?: string; fromCache: boolean }> {
-  if (pids.length === 0) return { live: new Set(), fromCache: false };
-  const script = pids.map((p) => `kill -0 ${p} 2>/dev/null && echo ${p}`).join("; ");
-  const cmd = platform() === "win32" ? "wsl.exe" : "bash";
-  const args = platform() === "win32" ? ["-d", WSL_DISTRO, "--", "bash", "-c", script] : ["-c", script];
-  return parseAndCache("wsl", await spawnCapture(cmd, args), pids, parsePidsFromLines);
+interface OriginAnswer {
+  /** Live pids → `ps` stat ("" where the probe cannot say). */
+  states: Map<number, string>;
+  error?: string;
+  fromCache: boolean;
 }
 
-async function checkWindowsLive(pids: number[]): Promise<{ live: Set<number>; error?: string; fromCache: boolean }> {
-  if (pids.length === 0) return { live: new Set(), fromCache: false };
+async function checkWslLive(pids: number[]): Promise<OriginAnswer> {
+  if (pids.length === 0) return { states: new Map(), fromCache: false };
+  const psArgs = ["-o", "pid=,stat=", "-p", pids.join(",")];
+  const result =
+    platform() === "win32"
+      ? await spawnCapture("wsl.exe", ["-d", WSL_DISTRO, "--", "ps", ...psArgs])
+      : await spawnCapture("ps", psArgs, { timeoutMs: 5_000 });
+  return parseAndCache("wsl", result, pids, parsePsStates);
+}
+
+async function checkWindowsLive(pids: number[]): Promise<OriginAnswer> {
+  if (pids.length === 0) return { states: new Map(), fromCache: false };
   if (platform() !== "win32") {
     // Linux-side plugin can't enumerate Windows processes; assume alive (best-effort).
-    return { live: new Set(pids), fromCache: false, error: "windows-liveness skipped on linux host" };
+    return { states: new Map(pids.map((p) => [p, ""])), fromCache: false, error: "windows-liveness skipped on linux host" };
   }
   // tasklist treats multiple `/FI "PID eq <n>"` filters as AND (no row matches
   // multiple PIDs simultaneously), so we can't batch-filter. Cheaper to dump
@@ -57,31 +69,23 @@ async function checkWindowsLive(pids: number[]): Promise<{ live: Set<number>; er
   return parseAndCache("windows", all, pids, parsePidsFromCsv);
 }
 
-function parsePidsFromLines(stdout: string): Set<number> {
-  const out = new Set<number>();
-  for (const line of stdout.split(/\r?\n/)) {
-    const n = Number.parseInt(line.trim(), 10);
-    if (Number.isInteger(n) && n > 0) out.add(n);
-  }
-  return out;
-}
-
-function parsePidsFromCsv(stdout: string): Set<number> {
+function parsePidsFromCsv(stdout: string): Map<number, string> {
   // tasklist CSV row:  "claude.exe","109164","Console","1","443 040 Ko"
-  const out = new Set<number>();
+  // It has no run state, so every listed pid maps to "" (never "stopped").
+  const out = new Map<number, string>();
   for (const line of stdout.split(/\r?\n/)) {
     const m = line.match(/^"[^"]*","(\d+)"/);
     if (m) {
       const n = Number.parseInt(m[1], 10);
-      if (Number.isInteger(n) && n > 0) out.add(n);
+      if (Number.isInteger(n) && n > 0) out.set(n, "");
     }
   }
   return out;
 }
 
-function intersect(parsed: Set<number>, candidates: Set<number>): Set<number> {
-  const out = new Set<number>();
-  for (const p of parsed) if (candidates.has(p)) out.add(p);
+function intersect(parsed: Map<number, string>, candidates: Set<number>): Map<number, string> {
+  const out = new Map<number, string>();
+  for (const [pid, stat] of parsed) if (candidates.has(pid)) out.set(pid, stat);
   return out;
 }
 
@@ -89,32 +93,43 @@ function parseAndCache(
   origin: SessionOrigin,
   result: CaptureResult,
   candidates: number[],
-  parser: (stdout: string) => Set<number>,
-): { live: Set<number>; error?: string; fromCache: boolean } {
+  parser: (stdout: string) => Map<number, string>,
+): OriginAnswer {
   const slot = cache[origin];
   const candSet = new Set(candidates);
 
   // Spawn-level flake: ENOENT, timeout, or anything that prevented the child
-  // from running cleanly. Fall back to the last good answer if recent enough.
-  const flake = result.err ?? (result.timedOut ? "timeout" : undefined);
+  // from running cleanly — including a probe that exited nonzero AND said why.
+  // Fall back to the last good answer if recent enough.
+  const failed = result.code !== 0 && result.stderr.trim() !== "";
+  const flake =
+    result.err ?? (result.timedOut ? "timeout" : failed ? `exit ${result.code}: ${result.stderr.trim()}` : undefined);
   if (flake) {
-    if (Date.now() - slot.lastLiveAt < CACHE_FALLBACK_MS) {
-      return { live: intersect(slot.lastLive, candSet), fromCache: true, error: `${origin}: spawn ${flake}` };
+    if (Date.now() - slot.lastAt < CACHE_FALLBACK_MS) {
+      return { states: intersect(slot.lastStates, candSet), fromCache: true, error: `${origin}: spawn ${flake}` };
     }
-    return { live: new Set(), fromCache: false, error: `${origin}: spawn ${flake}` };
+    return { states: new Map(), fromCache: false, error: `${origin}: spawn ${flake}` };
   }
 
   // Cache only the candidate intersection so the Windows path doesn't store
   // every system PID and the WSL path stays bounded by session count.
-  const live = intersect(parser(result.stdout), candSet);
-  slot.lastLive = live;
-  slot.lastLiveAt = Date.now();
-  return { live, fromCache: false };
+  const states = intersect(parser(result.stdout), candSet);
+  slot.lastStates = states;
+  slot.lastAt = Date.now();
+  return { states, fromCache: false };
 }
 
 export interface LivenessResult {
-  /** Set of sessionIds whose process is currently alive. */
+  /** Session ids with at least one live record. Conversation-level: several
+   *  records can share an id, so this cannot say which RECORD is live. */
   live: Set<string>;
+  /** Records whose own process is alive, stopped ones included. What pruning
+   *  and the display gate key on. Membership is by object identity, so it is
+   *  valid for the `sessions` array of this tick only. */
+  liveRecords: Set<SessionInfo>;
+  /** Live records whose process is stopped (Ctrl+Z): alive, so their files
+   *  stay, but nobody can use them until `fg` — no key, no tab stamp. */
+  suspended: Set<SessionInfo>;
   /** Whether any portion of the answer came from a cached fallback. */
   fromCache: boolean;
   /** Diagnostic when something went wrong. */
@@ -122,7 +137,7 @@ export interface LivenessResult {
 }
 
 export async function filterLiveSessions(sessions: SessionInfo[]): Promise<LivenessResult> {
-  // Every session with a pid goes through the same `kill -0`, bg included. The
+  // Every session with a pid goes through the same probe, bg included. The
   // old exclusion assumed a bg job's pid was the shared --bg-spare daemon; it
   // is not — a CLAIMED job runs as its own dedicated `claude.exe`. Judging bg
   // liveness by json freshness instead made a working job flap on and off the
@@ -131,53 +146,22 @@ export async function filterLiveSessions(sessions: SessionInfo[]): Promise<Liven
   const byOrigin: Record<SessionOrigin, number[]> = { wsl: [], windows: [] };
   for (const s of sessions) {
     // Both providers: the Codex bridge now records the real codex pid, so its
-    // liveness is the same `kill -0` question as Claude's rather than a
+    // liveness is the same process question as Claude's rather than a
     // self-reported flag.
-    if (s.pid !== undefined) byOrigin[s.origin].push(s.pid);
+    if (s.pid !== undefined && !byOrigin[s.origin].includes(s.pid)) byOrigin[s.origin].push(s.pid);
   }
 
   const [wslRes, winRes] = await Promise.all([
     checkWslLive(byOrigin.wsl),
     checkWindowsLive(byOrigin.windows),
   ]);
-
-  const live = new Set<string>();
-  for (const s of sessions) {
-    if (s.kind === "bg") {
-      // Pid check AND a non-terminal status: a job reporting itself completed
-      // is done even while its process is still winding down.
-      const livePids = s.origin === "wsl" ? wslRes.live : winRes.live;
-      if (s.pid !== undefined && livePids.has(s.pid) && !isTerminalBgStatus(s.bgStatus)) {
-        live.add(s.sessionId);
-      }
-      continue;
-    }
-    if (s.pid !== undefined) {
-      // Identical treatment for both providers.
-      const livePids = s.origin === "wsl" ? wslRes.live : winRes.live;
-      if (livePids.has(s.pid)) live.add(s.sessionId);
-      continue;
-    }
-    // No pid at all. Reached today only by a Codex bridge record whose hook
-    // found no codex ancestor to attribute, but the rule needs no provider name:
-    // a record that carries no pid can only be judged by its own liveness flag,
-    // which SessionEnd clears. Claude records take their pid from the filename
-    // and never land here. Weaker than a pid check — a hard-killed session with
-    // no SessionEnd lingers until its record is pruned — but strictly better
-    // than dropping a live session off the deck, and it now holds for any future
-    // agent that reports itself the same way.
-    //
-    // `=== true`, not `!== false`: the flag must be a POSITIVE claim. Only the
-    // Codex reader sets it (`active: raw.active !== false`), so a record that
-    // never mentions liveness — every Claude record — must fall through as dead
-    // rather than be treated as live forever. That inversion is how the phantom
-    // Codex tile worked, and it is not worth re-inventing here.
-    if (s.active === true) live.add(s.sessionId);
-  }
+  const { live, liveRecords, suspended } = classifyRecords(sessions, { wsl: wslRes.states, windows: winRes.states });
 
   const errors = [wslRes.error, winRes.error].filter(Boolean) as string[];
   return {
     live,
+    liveRecords,
+    suspended,
     fromCache: wslRes.fromCache || winRes.fromCache,
     error: errors.length ? errors.join("; ") : undefined,
   };

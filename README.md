@@ -59,7 +59,10 @@ started before it is set keep working, but only match after a re-stamp — resta
 them to get first-try jumps.
 
 Grant **Stream Deck.app** Accessibility permission (System Settings → Privacy &
-Security → Accessibility) on the first key press.
+Security → Accessibility) on the first key press, and allow it to control
+Ghostty when macOS asks (Privacy & Security → Automation). The Automation grant
+lets a key find its tab by the terminal's own title, which still works after
+you rename a tab by hand (View > Change Tab Title…).
 
 The deck *layout* (which key does what) is intentionally not in this repo — it
 lives in the author's dotfiles as a `layout.toml` plus an apply script, so this

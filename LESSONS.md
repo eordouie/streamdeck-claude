@@ -12,14 +12,15 @@ the area you are editing is not optional reading — check the table first.
 
 | Working on… | Read first |
 |---|---|
-| Ghostty tab focus, opening tabs, `ghostty-new-agent.sh`, the focus chain | [`docs/lessons/terminal-focus-and-launch.md`](docs/lessons/terminal-focus-and-launch.md) |
-| `process-scan.ts`, liveness, the kill path, provider parity, hook gating | [`docs/lessons/agent-process-identity.md`](docs/lessons/agent-process-identity.md) |
+| Ghostty tab focus, renamed tabs, Ghostty's AppleScript, opening tabs, `ghostty-new-agent.sh`, the focus chain | [`docs/lessons/terminal-focus-and-launch.md`](docs/lessons/terminal-focus-and-launch.md) |
+| `process-scan.ts`, liveness (per record, suspended processes), the kill path, provider parity, hook gating | [`docs/lessons/agent-process-identity.md`](docs/lessons/agent-process-identity.md) |
 | `src/icons/**` — motifs, mascots, animation phase, key-face text | [`docs/lessons/icon-rendering.md`](docs/lessons/icon-rendering.md) |
 | `deck-namer.ts` or any headless `claude -p` helper in this repo | [`docs/lessons/headless-helpers.md`](docs/lessons/headless-helpers.md) |
 
 What stays below: editing deck profiles, running the plugin from this
 working tree, owned tab identity, telling a TUI from plumbing, recorded
-sessions without terminals, and subagent liveness.
+sessions without terminals, subagent liveness, and log lines that prescribe a
+cure.
 
 ## The Stream Deck app ignores SIGTERM and rewrites profiles at quit
 
@@ -192,6 +193,21 @@ empty (old-CC lines make no claim; `[]` means nothing is running). The TTL
 that ages a silent agent out must exceed the longest single tool call — Bash
 caps at 10 min, so 15 — because an agent inside one long call emits nothing
 between its PreToolUse and PostToolUse.
+
+## A log line that prescribes a cure gets followed (2026-10-01)
+
+For a month, every `tab title contested` warning said
+`CLAUDE_CODE_DISABLE_TERMINAL_TITLE was not in effect when that session started
+— restart it for a stable name`. That was true of one cause. The two causes
+that actually fired — a Ctrl+Z'd twin process on the same tty, and a tab
+renamed by hand — survive a session restart, so restarting fixed nothing.
+Closing the tab fixed both, which made "restart everything" look like the cure
+for days.
+
+Rule: a diagnostic names the evidence it has, lists every cause known to
+produce that evidence, and prescribes only cures verified for each. When the
+check cannot tell causes apart (the Window-menu fallback cannot tell a renamed
+tab from another writer), say so instead of picking one.
 
 ## gh on this fork resolves PRs to upstream by default (2026-08-28)
 

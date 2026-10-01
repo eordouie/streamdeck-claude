@@ -138,3 +138,47 @@ a copied `/bin/bash` binary is SIGKILLed (rc 137) on this machine even outside
 the Bash-tool sandbox. Test `fd0_is_tty` against real pids — a live mcp-server
 must reject, a live TUI pid must accept — and exercise the reject branches by
 running the hook directly (the session's own parent chain has no codex).
+
+## A session id names a conversation, not a process (2026-10-01)
+
+The deck showed `crucible` twice for one tab. Its tty held two `claude`
+processes for the same conversation: pid 69552, suspended with Ctrl+Z on
+Sep 28 (`ps` stat `T`), and the live 67318, which had resumed that conversation
+with `claude -c`. Two faults stacked:
+
+- `kill -0` succeeds on a stopped process. A suspended agent stays in its
+  shell's job table indefinitely — three days here — and passed every
+  liveness check the whole time.
+- Liveness was a `Set` of session ids. Several `<pid>.json` files can carry one
+  id (a resume after a suspend, a crash or a closed tab), and an id-keyed
+  filter shows every one of them while any one is alive. Pruning used the same
+  test, so a DEAD twin was never deleted either.
+
+The twin also stamped its own `claude-<pid>-<word>` title onto the tty it
+shares with the live process. The two stamps alternated, each marking the
+other contested — 352 warnings in one log — and the tab name flipped every
+~10 min.
+
+The fix: one `ps -o pid=,stat= -p …` per tick answers both questions, for the
+cost of the old `kill -0` loop. `record-liveness.ts` judges each RECORD by its
+own pid. A stopped process counts as alive (its files stay, `fg` resumes it)
+but gets no key and no stamp. The sid-keyed events log is deleted only when no
+record of that conversation is alive.
+
+Rules:
+- Key deck membership and pruning on the process, never on an id the process
+  merely carries. Conversation-level bookkeeping (attention, finished
+  carry-over) can stay id-keyed.
+- "Alive" and "usable" are separate questions, and `kill -0` answers only the
+  first. Read the run state.
+- A `ps` that exits nonzero WITH stderr is a failed probe, not "everything
+  died": the prune path deletes files on that answer. `ps -p` with no
+  surviving pid exits 1 silently — that one is a real answer.
+
+Still open at the hook layer (2026-10-01): `hooks/notification.sh` truncates
+`<sid>.events.ndjson` on `SessionStart` and deletes it on `SessionEnd`, for
+whichever process of the conversation fires. The first twin to exit deletes
+the log the other is still writing, and the survivor loses its terminal kind
+and its tab stamp. Until that is fixed, end a stale twin with SIGKILL (no hook
+runs). Effort log: `docs/log/2026-10-01-deck-wrong-sessions.md`.
+

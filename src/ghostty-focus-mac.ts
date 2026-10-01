@@ -4,23 +4,32 @@ import type { FocusResult } from "./terminal-focus.js";
 import type { GhosttyFocusOpts } from "./ghostty-focus.js";
 import { spawnCapture } from "./spawn-capture.js";
 import { ttyForPid, writeTabTitle } from "./tab-title.js";
+import { focusTerminalTitled, frontTerminalTitle } from "./ghostty-script.js";
 
 const GHOSTTY_BUNDLE_ID = "com.mitchellh.ghostty";
 
 /**
  * Select the Ghostty tab hosting the session, on macOS.
  *
- * The plugin OWNS each tab's title (see tab-title.ts): every live session's
- * tab carries its unique canonical name, and Claude Code's own animated
- * title is disabled. So the jump is an exact Window-menu match — no
- * suffix/ordinal guessing, immune to tab reordering and manually opened
- * tabs. Ghostty lists every tab in that menu, background ones included,
- * which matters because background native tabs are NOT AX windows.
+ * The plugin OWNS each session's terminal title (see tab-title.ts): every
+ * live session's terminal carries its unique canonical name, and Claude
+ * Code's own animated title is disabled. So the jump is an exact match — no
+ * suffix/ordinal guessing, immune to tab reordering and manually opened tabs.
  *
- * Ladder: exact canonical-title click → re-stamp the tty and retry (covers a
- * title that drifted) → app activation. Never guesses a tab.
+ * Two ways to match, in order. Ghostty's AppleScript (1.3+) matches the
+ * TERMINAL title, which is where OSC 2 lands, and selects its tab — the only
+ * path that reaches a tab renamed by hand, because a hand-set tab name
+ * replaces the title everywhere else (2026-10-01: the `nebula` key never
+ * reached `claude-33832-Humain`). The Window menu matches TAB names and is
+ * the fallback when that API can't be asked; it lists every tab, background
+ * ones included, which matters because background native tabs are NOT AX
+ * windows.
  *
- * All AX paths require Stream Deck.app to hold Accessibility permission.
+ * Ladder: exact match (terminal, then menu) → re-stamp the tty and retry
+ * (covers a title that drifted) → app activation. Never guesses a tab.
+ *
+ * The menu path needs Accessibility for Stream Deck.app; the terminal path
+ * needs Automation (Stream Deck → Ghostty).
  */
 export async function focusGhosttyTabOnMac(
   cwd: string,
@@ -43,17 +52,17 @@ export async function focusGhosttyTabOnMac(
   // on a frontmost app is the reliable path.
   await activateApp();
 
-  const first = await clickWindowMenuTabExact(canonical);
-  if (first.ok) return { matched: true, reason: `menu exact="${canonical}"`, alreadyFront };
+  const first = await selectTabTitled(canonical);
+  if (first.ok) return { matched: true, reason: `${first.via} exact="${canonical}"`, alreadyFront };
 
-  // The tab's title drifted (shell prompt, user edit, session started before
+  // The title drifted (another writer on the tty, a session started before
   // the plugin owned titles): re-stamp it through the session's tty and retry.
   if (opts.pid !== undefined) {
     const dev = await ttyForPid(opts.pid);
     if (dev && (await writeTabTitle(dev, canonical))) {
       await new Promise((r) => setTimeout(r, 250));
-      const second = await clickWindowMenuTabExact(canonical);
-      if (second.ok) return { matched: true, reason: `menu exact="${canonical}" (re-stamped)`, alreadyFront };
+      const second = await selectTabTitled(canonical);
+      if (second.ok) return { matched: true, reason: `${second.via} exact="${canonical}" (re-stamped)`, alreadyFront };
       streamDeck.logger.info(`ghostty exact miss after re-stamp (${second.error}) title="${canonical}"`);
       return miss(`no-tab-named "${canonical}"`);
     }
@@ -62,10 +71,26 @@ export async function focusGhosttyTabOnMac(
   return miss(`no-tab-named "${canonical}"`);
 }
 
+/** Select the tab holding the terminal titled `title`: Ghostty's terminal
+ *  titles first, the Window menu's tab names when that API can't be asked. */
+async function selectTabTitled(
+  title: string,
+): Promise<{ ok: true; via: "terminal" | "menu" } | { ok: false; error: string }> {
+  const viaTerminal = await focusTerminalTitled(title);
+  if (viaTerminal === "focused") return { ok: true, via: "terminal" };
+  const viaMenu = await clickWindowMenuTabExact(title);
+  if (viaMenu.ok) return { ok: true, via: "menu" };
+  return { ok: false, error: `terminal ${viaTerminal}, menu ${viaMenu.error}` };
+}
+
 /** True when Ghostty is the frontmost app AND `title` is its focused tab —
  *  the user is looking straight at that session. Checked BEFORE we activate
- *  anything, since activating would make the answer trivially true. */
+ *  anything, since activating would make the answer trivially true. Asks
+ *  Ghostty for the focused TERMINAL's title first: the System Events window
+ *  name is the tab name, which a hand rename replaces. */
 async function isSessionTabFrontmost(title: string): Promise<boolean> {
+  const front = await frontTerminalTitle();
+  if (front !== null) return front === title;
   const escaped = title.replace(/"/g, '" & quote & "');
   const script = `
     tell application "System Events"
