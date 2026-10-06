@@ -115,3 +115,8 @@ Mechanics:
 - The tab name and the deck word can now differ. Ehsan's call (2026-10-01):
   the deck word stays fixed; the key must still reach the tab.
 
+
+Since 2026-10-06 the hand-set tab name is also an input, not only an obstacle:
+`adoptHandRenamedTabs` (tab-title.ts) reads tab/terminal pairs every 5 s and
+copies the tab's word into the `.deckname` sidecar, so both layers converge on
+the user's word.
