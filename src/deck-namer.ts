@@ -14,8 +14,9 @@ import { WSL_SESSIONS_DIR } from "./env.js";
  * the generated title when one exists), a single headless `claude -p` call
  * picks ONE distinguishing word. The user can overrule it by renaming the
  * Ghostty tab (adoptName). The word is persisted to
- * `<sid>.deckname` next to the session files, so it survives plugin restarts
- * and stays fixed for the session's life (the hook unlinks it at SessionEnd).
+ * `<sid>.deckname` next to the session files, so it survives plugin restarts,
+ * and is kept after SessionEnd so `--resume` reclaims it (30-day GC in
+ * sessions.ts).
  *
  * The naming call itself spawns a headless Claude session — which would show
  * up on the deck and recursively trigger naming — so it runs from NAMER_CWD,
