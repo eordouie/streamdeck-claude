@@ -1,9 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { platform } from "node:os";
 import streamDeck from "@elgato/streamdeck";
-import { canonicalTabTitle } from "./naming-policy.js";
+import { canonicalTabTitle, handRenamedWord } from "./naming-policy.js";
+import { adoptName } from "./deck-namer.js";
 import { spawnCapture } from "./spawn-capture.js";
-import { ghosttyScriptFailure, listTerminalTitles } from "./ghostty-script.js";
+import { ghosttyScriptFailure, listTabTerminalPairs, listTerminalTitles } from "./ghostty-script.js";
 import type { SessionInfo } from "./sessions.js";
 
 /**
@@ -100,6 +101,7 @@ async function listTabNames(): Promise<string[] | null> {
  *  the wrong layer. */
 export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise<void> {
   if (platform() !== "darwin") return;
+  await adoptHandRenamedTabs(sessions);
   const now = Date.now();
   const liveKeys = new Set<string>();
   await Promise.all(
@@ -158,6 +160,35 @@ export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise
   for (const map of [written, pendingVerify, contestedUntil]) {
     for (const key of map.keys()) {
       if (!liveKeys.has(key)) map.delete(key);
+    }
+  }
+}
+
+/** One Ghostty read per interval is enough: a rename is a rare, human-speed act. */
+const ADOPT_INTERVAL_MS = 5_000;
+let lastAdoptCheck = 0;
+
+/** A tab the user renamed by hand names the session: its word replaces the
+ *  deck word (handRenamedWord). The next tick relabels the key and re-stamps
+ *  the terminal with the adopted word, so the two layers agree again. */
+async function adoptHandRenamedTabs(sessions: readonly SessionInfo[]): Promise<void> {
+  const now = Date.now();
+  if (now - lastAdoptCheck < ADOPT_INTERVAL_MS) return;
+  lastAdoptCheck = now;
+  const pairs = await listTabTerminalPairs();
+  if (!pairs) return;
+  const byPid = new Map(
+    sessions.filter((s) => s.kind !== "bg" && s.pid !== undefined && s.terminal === "ghostty").map((s) => [s.pid, s]),
+  );
+  for (const { tab, terminal } of pairs) {
+    const ask = handRenamedWord(tab, terminal);
+    if (!ask) continue;
+    const s = byPid.get(ask.pid);
+    if (!s || s.deckName === ask.word) continue;
+    try {
+      await adoptName(s.sessionId, ask.word);
+    } catch (err) {
+      streamDeck.logger.warn(`adopting tab word "${ask.word}" failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

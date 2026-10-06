@@ -104,3 +104,28 @@ export async function frontTerminalTitle(): Promise<string | null> {
   `);
   return r.ok ? r.out : null;
 }
+
+/** Every tab's name paired with the title of its focused terminal, or null
+ *  when the API can't be asked. The two differ exactly when the tab was
+ *  renamed by hand (see the header). */
+export async function listTabTerminalPairs(): Promise<{ tab: string; terminal: string }[] | null> {
+  const r = await runGhosttyScript(`
+      set sep to character id 9
+      set out to {}
+      repeat with w in windows
+        repeat with t in tabs of w
+          try
+            set end of out to (name of t) & sep & (name of focused terminal of t)
+          end try
+        end repeat
+      end repeat
+      set AppleScript's text item delimiters to linefeed
+      return out as text
+  `);
+  if (!r.ok) return null;
+  return r.out
+    .split("\n")
+    .map((l) => l.split("\t"))
+    .filter((parts) => parts.length === 2)
+    .map(([tab, terminal]) => ({ tab: tab.trim(), terminal: terminal.trim() }));
+}

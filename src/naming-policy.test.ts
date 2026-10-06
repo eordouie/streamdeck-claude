@@ -125,3 +125,52 @@ test("bgJobLabel trims but does not truncate — the renderer wraps and escapes"
   const long = "a-very-long-background-job-name-that-will-wrap";
   assert.equal(bgJobLabel(long, "projects"), long);
 });
+
+// --- naming readiness, broad words, hand-renamed tabs ---
+
+import { broadWords, handRenamedWord, isNamingPrompt, namingReady } from "./naming-policy.js";
+
+test("isNamingPrompt drops slash commands, wrappers, notifications and short openers", () => {
+  assert.equal(isNamingPrompt("/pull-all and then go"), false);
+  assert.equal(isNamingPrompt("<command-name>/clear</command-name>"), false);
+  assert.equal(isNamingPrompt("[SYSTEM NOTIFICATION - NOT USER INPUT] done"), false);
+  assert.equal(isNamingPrompt("go ahead"), false);
+  assert.equal(isNamingPrompt("tune the calorimeter aperture"), true);
+});
+
+test("namingReady waits for three prompts or one long enough to carry the topic", () => {
+  assert.equal(namingReady([]), false);
+  assert.equal(namingReady(["continue the session please"]), false);
+  assert.equal(namingReady(["continue the session please", "pull all repos now"]), false);
+  assert.equal(namingReady(["a b c", "d e f", "g h i"]), true);
+  assert.equal(namingReady([Array.from({ length: 30 }, (_, i) => `w${i}`).join(" ")]), true);
+});
+
+test("broadWords bans shared product words and every folder on the session's path", () => {
+  const w = broadWords("/Users/ehsan/Projects/active/optical-system-app");
+  for (const x of ["hive", "nebula", "lighttools", "projects", "active", "optical-system-app", "system"]) {
+    assert.ok(w.includes(x), x);
+  }
+  assert.ok(!w.includes("users"));
+  assert.ok(!w.includes("app")); // too short to matter, and a real subject word elsewhere
+});
+
+test("handRenamedWord reads the word the user typed on the tab", () => {
+  assert.deepEqual(handRenamedWord("claude-33832-Humain", "claude-33832-nebula"), { pid: 33832, word: "Humain" });
+  assert.deepEqual(handRenamedWord("claude-27945-workflow-improvement", "claude-27945-simaudit"), {
+    pid: 27945,
+    word: "workflow-improvement",
+  });
+  // A stale pid in the tab name (resumed in the same tab): the terminal's pid wins.
+  assert.deepEqual(handRenamedWord("claude-11111-shading", "claude-48116-whitesim"), { pid: 48116, word: "shading" });
+  // A bare name, spaces turned into dashes.
+  assert.deepEqual(handRenamedWord("humain layout", "claude-5-nebula"), { pid: 5, word: "humain-layout" });
+});
+
+test("handRenamedWord ignores untouched tabs, non-agent terminals and unusable names", () => {
+  assert.equal(handRenamedWord("claude-47143-labeling", "claude-47143-labeling"), null);
+  assert.equal(handRenamedWord("my notes", "zsh"), null);
+  assert.equal(handRenamedWord("claude-47143", "claude-47143-labeling"), null);
+  assert.equal(handRenamedWord("a name that is far too long for a tab word", "claude-1-x"), null);
+  assert.equal(handRenamedWord("bad/name", "claude-1-x"), null);
+});
