@@ -3,16 +3,17 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
-import { selfReferentialWords, takenWordsFromDisk } from "./naming-policy.js";
+import { broadWords, namingReady, selfReferentialWords, takenWordsFromDisk } from "./naming-policy.js";
 import { spawnCapture } from "./spawn-capture.js";
 import { WSL_SESSIONS_DIR } from "./env.js";
 
 /**
  * One deliberate word per session, chosen once and never changed.
  *
- * When a session has enough context (its first substantial prompt, plus the
- * generated title when one exists), a single headless `claude -p` call on a
- * small model picks ONE distinguishing word. The word is persisted to
+ * When a session has enough context (namingReady: its first few prompts, plus
+ * the generated title when one exists), a single headless `claude -p` call
+ * picks ONE distinguishing word. The user can overrule it by renaming the
+ * Ghostty tab (adoptName). The word is persisted to
  * `<sid>.deckname` next to the session files, so it survives plugin restarts
  * and stays fixed for the session's life (the hook unlinks it at SessionEnd).
  *
@@ -29,7 +30,10 @@ const CLAUDE_BIN_CANDIDATES = [
   join(homedir(), ".claude", "local", "claude"),
   join(homedir(), ".local", "bin", "claude"),
 ];
-const NAMER_MODEL = "claude-haiku-4-5-20251001";
+/** An alias, not a dated id: a retired id once failed every naming call
+ *  (see gaveUp). Sonnet over Haiku since 2026-10-06 — the call is one short
+ *  prompt, and Haiku's words named the project rather than the subject. */
+const NAMER_MODEL = "sonnet";
 const NAMER_TIMEOUT_MS = 45_000;
 const RETRY_COOLDOWN_MS = 120_000;
 const WORD_RE = /^[a-z][a-z0-9-]{2,11}$/;
@@ -88,26 +92,36 @@ async function claudeBin(): Promise<string> {
  *  tick — deduped by sidecar presence, an in-flight set, and a retry cooldown. */
 export function maybeName(opts: {
   sessionId: string;
-  firstPrompt: string;
+  prompts: readonly string[];
   title: string;
+  cwd: string;
   takenWords: readonly string[];
   liveSids: ReadonlySet<string>;
 }): void {
-  const { sessionId, firstPrompt, title, takenWords, liveSids } = opts;
+  const { sessionId, prompts, title, cwd, takenWords, liveSids } = opts;
   if (known.get(sessionId)) return;
   if (gaveUp.has(sessionId)) return;
-  if (!firstPrompt && !title) return; // don't rush — wait for real context
+  if (!namingReady(prompts)) return; // don't rush — wait for real context
   if (inflight.has(sessionId)) return;
   if ((cooldownUntil.get(sessionId) ?? 0) > Date.now()) return;
   inflight.add(sessionId);
   nameQueue = nameQueue
-    .then(() => nameSession(sessionId, firstPrompt, title, takenWords, liveSids))
+    .then(() => nameSession(sessionId, prompts, title, cwd, takenWords, liveSids))
     .catch((err) => {
       streamDeck.logger.warn(`namer failed for ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
     })
     .finally(() => {
       inflight.delete(sessionId);
     });
+}
+
+/** The user's word wins: a hand-renamed Ghostty tab (handRenamedWord) replaces
+ *  the session's word, persisted like a namer word so `--resume` keeps it. */
+export async function adoptName(sessionId: string, word: string): Promise<void> {
+  if (known.get(sessionId) === word) return;
+  await writeFile(sidecarPath(sessionId), `${word}\n`);
+  known.set(sessionId, word);
+  streamDeck.logger.info(`namer: session ${sessionId} -> "${word}" (tab renamed by hand)`);
 }
 
 /** Keep a live session's sidecar mtime fresh: the dead-sidecar GC in
@@ -128,8 +142,9 @@ export function touchSidecar(sessionId: string): void {
 
 async function nameSession(
   sessionId: string,
-  firstPrompt: string,
+  prompts: readonly string[],
   title: string,
+  cwd: string,
   takenWords: readonly string[],
   liveSids: ReadonlySet<string>,
 ): Promise<void> {
@@ -145,29 +160,29 @@ async function nameSession(
   await mkdir(NAMER_CWD, { recursive: true });
 
   const taken = [...new Set([...takenWords.filter(Boolean), ...(await takenWordsFromDisk(liveSids, WSL_SESSIONS_DIR))])];
+  const broad = broadWords(cwd);
+  const system = [
+    "You label a developer's parallel agent sessions so they can tell them apart at a glance.",
+    "Reply with EXACTLY ONE lowercase word (letters, 3-12 chars, no punctuation): the specific",
+    "subject of THIS session — the component, study, artifact, bug or question being worked on.",
+    "Many sessions share the same company, product, repo and tool, so a word naming those",
+    "identifies nothing. Prefer the narrowest concrete noun the prompts support",
+    "(e.g. calorimeter, dfmea, shading, crossfire), not the umbrella it belongs to.",
+    "Reply with ONLY the word.",
+  ].join("\n");
   const prompt = [
-    "You label a developer's parallel agent sessions.",
-    "Reply with EXACTLY ONE lowercase word (letters, 3-12 chars, no punctuation)",
-    "that most distinctively identifies this session among the others.",
-    "Pick the specific subject being worked on (a tool, component, domain, artifact).",
-    "",
-    // Without this the model names thin sessions after the namer's own sentinel
-    // working directory — see selfReferentialWords. Verified to flip
-    // "what is the latest news" from "deck" to "news"/"briefing".
-    "The session described below is NOT the one you are running in. Ignore your",
-    "own working directory, its name, and any project context you were given:",
-    "they belong to the labelling tool, not to the session. Name it ONLY from the",
-    "two lines below.",
-    "",
+    `Never use these broad words: ${broad.join(", ")}.`,
     `Never use generic words (code, session, help, project, task, question)${taken.length ? ` and never any of: ${taken.join(", ")}` : ""}.`,
     "",
     `Session title: ${title || "(none yet)"}`,
-    `First request: ${firstPrompt || "(none)"}`,
-    "",
-    "Reply with ONLY the word, nothing else.",
+    ...prompts.map((p, i) => `Request ${i + 1}: ${p}`),
   ].join("\n");
 
-  const r = await spawnCapture(bin, ["-p", prompt, "--model", NAMER_MODEL], {
+  // Lean call: our own system prompt and no settings sources, so the user's
+  // global CLAUDE.md (which names every repo and product) is not in context —
+  // measured 2026-10-06, the default call listed hive, terrawatt, fresnel… as
+  // context, which pulled words toward the project. No tools: it only answers.
+  const r = await spawnCapture(bin, ["-p", prompt, "--model", NAMER_MODEL, "--system-prompt", system, "--setting-sources", "", "--tools", ""], {
     timeoutMs: NAMER_TIMEOUT_MS,
     cwd: NAMER_CWD,
   });
@@ -184,7 +199,12 @@ async function nameSession(
     return;
   }
   const word = (r.stdout.trim().split(/\s+/)[0] ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "");
-  if (!WORD_RE.test(word) || REJECT.has(word) || taken.includes(word)) {
+  if (!WORD_RE.test(word) || REJECT.has(word) || taken.includes(word) || broad.includes(word)) {
+    // Counted as a failure: a model that keeps answering with a banned word
+    // would otherwise be re-asked every RETRY_COOLDOWN_MS forever.
+    const n = (failures.get(sessionId) ?? 0) + 1;
+    failures.set(sessionId, n);
+    if (n >= MAX_NAMER_FAILURES) gaveUp.add(sessionId);
     streamDeck.logger.warn(`namer produced unusable word ${JSON.stringify(word)} for ${sessionId}`);
     return;
   }
@@ -198,6 +218,8 @@ async function nameSession(
     );
     return;
   }
+  // The user may have renamed the tab while the call ran; their word stands.
+  if (known.get(sessionId)) return;
   await writeFile(sidecarPath(sessionId), `${word}\n`);
   known.set(sessionId, word);
   streamDeck.logger.info(`namer: session ${sessionId} -> "${word}"`);

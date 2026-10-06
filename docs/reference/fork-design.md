@@ -17,8 +17,10 @@ sessions to `ghostty-focus(-mac).ts`. The plugin **assigns** each tab its
 identity rather than inferring one: `tab-title.ts` writes a unique canonical
 name (`claude-<pid>-<word>` once named, else `claude-<pid>`) as an OSC 2 sequence to `/dev/<tty>` of
 the session's pid — the tty *is* that tab's pty — re-asserting every 30 s.
-Focus is then an exact Window-menu match, with re-stamp-and-retry, then app
-activation; it never guesses a tab. **Requires
+Focus is then an exact match on the TERMINAL title through Ghostty's
+AppleScript (the Window menu's tab names as fallback), with re-stamp-and-retry,
+then app activation; it never guesses a tab. The terminal match is what keeps a
+hand-renamed tab reachable (2026-10-01). **Requires
 `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1`** or Claude's animated title fights the
 stamp. Full rationale and the three mechanisms this replaced:
 [`docs/ghostty-focus.md`](../ghostty-focus.md).

@@ -1,8 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { platform } from "node:os";
 import streamDeck from "@elgato/streamdeck";
-import { canonicalTabTitle } from "./naming-policy.js";
+import { canonicalTabTitle, handRenamedWord } from "./naming-policy.js";
+import { adoptName } from "./deck-namer.js";
 import { spawnCapture } from "./spawn-capture.js";
+import { ghosttyScriptFailure, listTabTerminalPairs, listTerminalTitles } from "./ghostty-script.js";
 import type { SessionInfo } from "./sessions.js";
 
 /**
@@ -34,13 +36,17 @@ const REASSERT_MS = 30_000;
 
 /** Stamps waiting to be checked against the live tab names. */
 const pendingVerify = new Map<string, { title: string; at: number; pid: number }>();
-/** Sessions that overwrite our stamp — we stop pulling so the tab name
- *  doesn't ping-pong. Happens when CLAUDE_CODE_DISABLE_TERMINAL_TITLE was
- *  not in effect when that session started (restarting it fixes it); focus
- *  still works there via the re-stamp tier. */
+/** Sessions whose stamp did not stick — we stop pulling so the title doesn't
+ *  ping-pong. Real causes seen: a second agent process on the same tty (a
+ *  Ctrl+Z'd twin — now kept off the deck, so it no longer stamps), a session
+ *  whose CLAUDE_CODE_DISABLE_TERMINAL_TITLE never took effect, and, on the
+ *  Window-menu fallback only, a tab renamed by hand. Focus still tries the
+ *  terminal title and the re-stamp tier there. */
 const contestedUntil = new Map<string, number>();
 const VERIFY_DELAY_MS = 4_000;
 const CONTESTED_BACKOFF_MS = 600_000;
+/** Last Ghostty-API failure logged, so a lasting one is said once. */
+let loggedApiFailure = "";
 
 /** Resolve a pid's controlling tty device path, or "" when it has none. */
 export async function ttyForPid(pid: number): Promise<string> {
@@ -62,7 +68,9 @@ export async function writeTabTitle(dev: string, title: string): Promise<boolean
 }
 
 /** Live Ghostty tab names (every tab, background ones included), or null when
- *  they can't be read. Used to confirm a stamp actually stuck. */
+ *  they can't be read. The fallback for confirming a stamp when Ghostty's own
+ *  API is unavailable: these are TAB names, so a tab renamed by hand shows its
+ *  hand-set name here even though the stamp is intact on its terminal. */
 async function listTabNames(): Promise<string[] | null> {
   const script = `
     tell application "System Events"
@@ -93,6 +101,7 @@ async function listTabNames(): Promise<string[] | null> {
  *  the wrong layer. */
 export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise<void> {
   if (platform() !== "darwin") return;
+  await adoptHandRenamedTabs(sessions);
   const now = Date.now();
   const liveKeys = new Set<string>();
   await Promise.all(
@@ -119,10 +128,23 @@ export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise
       }),
   );
 
-  // One menu read confirms every stamp old enough to have settled.
+  // One read confirms every stamp old enough to have settled. Terminal titles
+  // first: OSC 2 sets exactly those, and a hand-renamed tab still carries the
+  // stamp there. The Window menu lists TAB names, so it called a renamed tab
+  // contested every 10 min forever (2026-09-30, `claude-33832-Humain`).
   const due = [...pendingVerify].filter(([, p]) => now - p.at >= VERIFY_DELAY_MS);
   if (due.length > 0) {
-    const names = await listTabNames();
+    const terminalTitles = await listTerminalTitles();
+    const failure = ghosttyScriptFailure();
+    if (failure !== loggedApiFailure) {
+      if (failure) {
+        streamDeck.logger.warn(`ghostty api unavailable (${failure}); using the Window menu (tab names) instead`);
+      } else {
+        streamDeck.logger.info("ghostty api available again; matching terminal titles");
+      }
+      loggedApiFailure = failure;
+    }
+    const names = terminalTitles ?? (await listTabNames());
     if (names) {
       const present = new Set(names);
       for (const [key, p] of due) {
@@ -130,11 +152,7 @@ export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise
         if (present.has(p.title)) continue;
         contestedUntil.set(key, now + CONTESTED_BACKOFF_MS);
         written.delete(key);
-        streamDeck.logger.warn(
-          `tab title contested for pid=${p.pid}: "${p.title}" was overwritten, so the tab name is left alone ` +
-            `(CLAUDE_CODE_DISABLE_TERMINAL_TITLE was not in effect when that session started — restart it for a ` +
-            `stable name). Slot focus still works there via the re-stamp tier.`,
-        );
+        streamDeck.logger.warn(contestedWarning(p.pid, p.title, terminalTitles !== null));
       }
     }
   }
@@ -144,4 +162,47 @@ export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise
       if (!liveKeys.has(key)) map.delete(key);
     }
   }
+}
+
+/** One Ghostty read per interval is enough: a rename is a rare, human-speed act. */
+const ADOPT_INTERVAL_MS = 5_000;
+let lastAdoptCheck = 0;
+
+/** A tab the user renamed by hand names the session: its word replaces the
+ *  deck word (handRenamedWord). The next tick relabels the key and re-stamps
+ *  the terminal with the adopted word, so the two layers agree again. */
+async function adoptHandRenamedTabs(sessions: readonly SessionInfo[]): Promise<void> {
+  const now = Date.now();
+  if (now - lastAdoptCheck < ADOPT_INTERVAL_MS) return;
+  lastAdoptCheck = now;
+  const pairs = await listTabTerminalPairs();
+  if (!pairs) return;
+  const byPid = new Map(
+    sessions.filter((s) => s.kind !== "bg" && s.pid !== undefined && s.terminal === "ghostty").map((s) => [s.pid, s]),
+  );
+  for (const { tab, terminal } of pairs) {
+    const ask = handRenamedWord(tab, terminal);
+    if (!ask) continue;
+    const s = byPid.get(ask.pid);
+    if (!s || s.deckName === ask.word) continue;
+    try {
+      await adoptName(s.sessionId, ask.word);
+    } catch (err) {
+      streamDeck.logger.warn(`adopting tab word "${ask.word}" failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
+
+/** Why a stamp did not stick, as far as the evidence goes. Never "restart the
+ *  session": the old text said exactly that, and sent the user restarting
+ *  sessions over a hand-renamed tab and a suspended twin on the same tty —
+ *  restarting fixes neither (2026-10-01). */
+function contestedWarning(pid: number, title: string, readTerminals: boolean): string {
+  const head = `tab title contested for pid=${pid}: "${title}" did not stick; not re-stamping that tab for 10 min.`;
+  return readTerminals
+    ? `${head} Something else writes that terminal's title: another agent process on the same tty, or a program ` +
+        `titling itself (Claude Code does when CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 did not reach it).`
+    : `${head} Checked against the Window menu, which lists TAB names: a tab renamed by hand ` +
+        `(View > Change Tab Title…) beats every program title and looks the same as another writer. ` +
+        `Allow Stream Deck to control Ghostty (Privacy & Security > Automation) to tell them apart.`;
 }

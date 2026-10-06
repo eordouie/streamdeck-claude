@@ -1,6 +1,7 @@
 import { open, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isNamingPrompt, MAX_NAMING_PROMPTS } from "./naming-policy.js";
 
 /** Last occurrence of `"key":"<value>"` in raw JSONL, JSON-unescaped. */
 export function lastJsonString(text: string, key: string): string {
@@ -66,14 +67,16 @@ export async function readSessionTitle(path: string): Promise<string> {
   return title;
 }
 
-/** First substantial HUMAN prompt in a transcript-head chunk. Filters the
- *  head's metadata entries (last-prompt/mode/attachment/...), isMeta user
- *  payloads (skill/command text), tool_result-only content arrays, command
- *  wrappers ("<command-name>...", "<system-reminder>..."), and trivial
- *  openers under the same ≥3-word bar the events reducer uses. Clipped to
- *  200 chars for parity with the hook's UserPromptSubmit clip. */
-export function extractFirstUserPrompt(text: string): string {
+/** The first `max` human prompts in a transcript-head chunk (isNamingPrompt).
+ *  Filters the head's metadata entries (last-prompt/mode/attachment/...),
+ *  isMeta user payloads (skill/command text), tool_result-only content arrays,
+ *  command wrappers ("<command-name>...", "<system-reminder>..."), slash
+ *  commands and trivial openers. Each clipped to 200 chars for parity with the
+ *  hook's UserPromptSubmit clip. */
+export function extractUserPrompts(text: string, max = MAX_NAMING_PROMPTS): string[] {
+  const out: string[] = [];
   for (const line of text.split("\n")) {
+    if (out.length >= max) break;
     let entry: unknown;
     try {
       entry = JSON.parse(line);
@@ -98,54 +101,47 @@ export function extractFirstUserPrompt(text: string): string {
         .map((b) => b.text)
         .join(" ");
     }
-    const prompt = promptText.trim();
-    if (!prompt || prompt.startsWith("<")) continue;
-    if (prompt.split(/\s+/).length < 3) continue;
-    return prompt.slice(0, 200);
+    if (isNamingPrompt(promptText)) out.push(promptText.trim().slice(0, 200));
   }
-  return "";
+  return out;
 }
 
-/** The conversation's original first prompt, mined from the transcript head.
+/** The conversation's original prompts, mined from the transcript head.
  *  Fallback naming context for RESUMED sessions: SessionStart truncates the
  *  events log, so a session driven only by trivial openers ("continue")
- *  after a resume never re-earns a firstPrompt from events — but the
- *  transcript still holds the one it was originally asked. Positive results
- *  are permanent per path (the first prompt is immutable history); misses
- *  are re-checked only when the file changes. */
-const firstPromptCache = new Map<string, string>();
-const firstPromptMiss = new Map<string, { size: number; mtimeMs: number }>();
+ *  after a resume never re-earns prompts from events — but the transcript
+ *  still holds what it was originally asked. A full set is permanent per path
+ *  (immutable history); a partial one is re-read only when the file changes. */
+const promptCache = new Map<string, { size: number; mtimeMs: number; prompts: string[] }>();
 
-export async function readFirstUserPrompt(path: string): Promise<string> {
-  if (!path) return "";
-  const known = firstPromptCache.get(path);
-  if (known !== undefined) return known;
+export async function readUserPrompts(path: string): Promise<string[]> {
+  if (!path) return [];
   let size: number, mtimeMs: number;
+  const cached = promptCache.get(path);
+  if (cached && cached.prompts.length >= MAX_NAMING_PROMPTS) return cached.prompts;
   try {
     const st = await stat(path);
     size = st.size;
     mtimeMs = st.mtimeMs;
   } catch {
-    return "";
+    return [];
   }
-  const miss = firstPromptMiss.get(path);
-  if (miss && miss.size === size && miss.mtimeMs === mtimeMs) return "";
+  if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return cached.prompts;
 
-  let prompt = "";
+  let prompts: string[] = [];
   try {
     const fh = await open(path, "r");
     try {
       const head = new Uint8Array(Math.min(CHUNK, size));
       await fh.read(head, 0, head.length, 0);
-      prompt = extractFirstUserPrompt(Buffer.from(head).toString("utf8"));
+      prompts = extractUserPrompts(Buffer.from(head).toString("utf8"));
     } finally {
       await fh.close();
     }
   } catch {
-    return "";
+    return [];
   }
-  if (prompt) firstPromptCache.set(path, prompt);
-  else firstPromptMiss.set(path, { size, mtimeMs });
-  return prompt;
+  promptCache.set(path, { size, mtimeMs, prompts });
+  return prompts;
 }
 

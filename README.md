@@ -17,7 +17,7 @@ of upstream:
 | Addition | What it does |
 |---|---|
 | **Ghostty tab focus** | A slot press jumps to that session's exact tab. The plugin *assigns* each tab a unique name (written to the session's tty) and matches it exactly — it never guesses. See [`docs/ghostty-focus.md`](docs/ghostty-focus.md). |
-| **One word per session** | A single cheap headless call names each session with one distinguishing word, once, after it has real context. The word labels the key *and* the Ghostty tab. |
+| **One word per session** | A single headless Sonnet call names each session with one distinguishing word, once, after its first three prompts (or one long one). The word labels the key *and* the Ghostty tab. Rename the tab by hand and the key takes your word. |
 | **Attention flash** | A key flashes from the moment its session finishes or needs input until you press it (or reply). Static idle doesn't flash. |
 | **Per-slot mascots** | Each key position has its own walking, blinking pixel character on idle. |
 | **Command keys** | A first-party action that runs a configured script. Currently unused on the author's deck — the command keys were retired in favor of the sibling deck-signals plugin's ambient keys — but the action remains available. |
@@ -59,7 +59,12 @@ started before it is set keep working, but only match after a re-stamp — resta
 them to get first-try jumps.
 
 Grant **Stream Deck.app** Accessibility permission (System Settings → Privacy &
-Security → Accessibility) on the first key press.
+Security → Accessibility) on the first key press, and allow it to control
+Ghostty when macOS asks (Privacy & Security → Automation). The Automation grant
+lets a key find its tab by the terminal's own title, which still works after
+you rename a tab by hand (View > Change Tab Title…). It also lets the deck read
+that hand-set name: type `claude-<pid>-<word>` or just `<word>` and, within
+about 5 s, the key shows your word and keeps it across `claude --resume`.
 
 The deck *layout* (which key does what) is intentionally not in this repo — it
 lives in the author's dotfiles as a `layout.toml` plus an apply script, so this

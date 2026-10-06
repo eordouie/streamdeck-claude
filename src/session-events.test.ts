@@ -55,17 +55,24 @@ test("absent transcript defaults to empty string", () => {
   assert.equal(reduceEvents(parseEventLog(log)).transcriptPath, "");
 });
 
-test("firstPrompt captures the first substantial prompt and stays fixed", () => {
+test("prompts collects the first three human prompts and then stays fixed", () => {
   const log = [
     { ts: 1, event: "SessionStart", term: "ghostty" },
     { ts: 2, event: "UserPromptSubmit", prompt: "hi" },
     { ts: 3, event: "UserPromptSubmit", prompt: "brutally audit the mirror optimizer sweep" },
     { ts: 4, event: "Stop" },
-    { ts: 5, event: "UserPromptSubmit", prompt: "now refactor the tolerance budget tab" },
+    { ts: 5, event: "UserPromptSubmit", prompt: "/pull-all now please" },
+    { ts: 6, event: "UserPromptSubmit", prompt: "now refactor the tolerance budget tab" },
+    { ts: 7, event: "UserPromptSubmit", prompt: "then check the calorimeter aperture" },
+    { ts: 8, event: "UserPromptSubmit", prompt: "and one more thing here" },
   ]
     .map((e) => JSON.stringify(e))
     .join("\n");
-  assert.equal(reduceEvents(parseEventLog(log)).firstPrompt, "brutally audit the mirror optimizer sweep");
+  assert.deepEqual(reduceEvents(parseEventLog(log)).prompts, [
+    "brutally audit the mirror optimizer sweep",
+    "now refactor the tolerance budget tab",
+    "then check the calorimeter aperture",
+  ]);
 });
 
 // --- 2026-08-03 review fixes ------------------------------------------------
@@ -155,7 +162,7 @@ test("machine-injected prompts never become the naming context", () => {
     ev("UserPromptSubmit", { prompt: "<task-notification> something completed </task-notification>" }),
     ev("UserPromptSubmit", { prompt: "fix the slack key on my deck" }),
   ]);
-  assert.equal(d.firstPrompt, "fix the slack key on my deck");
+  assert.deepEqual(d.prompts, ["fix the slack key on my deck"]);
 });
 
 // --- background-agent badge counter (cross-turn, leak-tolerant) -------------

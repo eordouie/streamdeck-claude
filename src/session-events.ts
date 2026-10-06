@@ -5,6 +5,7 @@
  *  drop/rm pairs. Adding a new state = one case in `applyEvent`. */
 
 import { normaliseTerm, type TerminalKind } from "./terminal-kind.js";
+import { isNamingPrompt, MAX_NAMING_PROMPTS } from "./naming-policy.js";
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
 const VALID_TODO_STATUS: ReadonlySet<TodoStatus> = new Set(["pending", "in_progress", "completed"]);
@@ -78,9 +79,9 @@ export interface DerivedState {
   /** Transcript path (from the SessionStart hook stamp); "" when unknown.
    *  Used to look up the session's title for tab-level focus. */
   transcriptPath: string;
-  /** The FIRST substantial prompt (≥3 words) of the session, clipped by the
-   *  hook — context for the one-time deck-name pick. "" until one lands. */
-  firstPrompt: string;
+  /** The session's first MAX_NAMING_PROMPTS human prompts (isNamingPrompt),
+   *  clipped by the hook — context for the one-time deck-name pick. */
+  prompts: string[];
   /** Launch correlation ID captured at SessionStart, if launched by the deck. */
   launchId?: string;
 }
@@ -102,7 +103,7 @@ interface ReducerState extends Omit<DerivedState, "agentLastSeen"> {
   agentsSeen: Record<string, number>;
 }
 
-const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], legacyStarts: [], agentsSeen: {}, terminal: "unknown", transcriptPath: "", firstPrompt: "", launchId: undefined, inTurn: false };
+const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], legacyStarts: [], agentsSeen: {}, terminal: "unknown", transcriptPath: "", prompts: [], launchId: undefined, inTurn: false };
 
 /** How long an agent stays believed-live with no further sighting. Must
  *  exceed the longest legitimate silent gap — an agent inside one long tool
@@ -149,14 +150,12 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
       // subagent killed or a hook that didn't fire — from leaking across the
       // turn boundary and stranding the session on the "subagent" icon.
       const next = { ...state, inTurn: true, awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0 };
-      // Capture the FIRST substantial prompt only — trivial openers
-      // ("continue", "hi") don't count as naming context, and neither do
-      // machine-injected turns (background-task notifications arrive as
-      // UserPromptSubmit with an XML body): a session named after harness
-      // plumbing instead of the user's actual request is worse than unnamed.
-      const machine = /^\s*(\[SYSTEM NOTIFICATION|<task-notification)/.test(ev.prompt ?? "");
-      if (!state.firstPrompt && !machine && ev.prompt !== undefined && ev.prompt.trim().split(/\s+/).length >= 3) {
-        next.firstPrompt = ev.prompt.trim();
+      // Collect the first few human prompts as naming context. Trivial
+      // openers, slash commands and machine-injected turns (background-task
+      // notifications arrive as UserPromptSubmit with an XML body) don't count:
+      // a session named after harness plumbing is worse than unnamed.
+      if (state.prompts.length < MAX_NAMING_PROMPTS && isNamingPrompt(ev.prompt)) {
+        next.prompts = [...state.prompts, (ev.prompt ?? "").trim()];
       }
       return next;
     }

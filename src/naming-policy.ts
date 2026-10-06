@@ -133,3 +133,78 @@ export function bgJobLabel(name: string | undefined, cwdBasename: string): strin
   const trimmed = (name ?? "").trim();
   return trimmed === "" ? cwdBasename : trimmed;
 }
+
+/** How many of a session's prompts feed the namer, and when it may name.
+ *  One prompt was the old bar, and the opener is often thin ("continue the
+ *  session", "pull all"): 2026-10-06 the live words included `vacant` and
+ *  `labeling`. Waiting for three prompts — or one prompt long enough to carry
+ *  the topic on its own — trades a few minutes of cwd-basename label for a
+ *  word that names the work. */
+export const MAX_NAMING_PROMPTS = 3;
+export const NAMING_READY_WORDS = 30;
+
+/** A prompt that tells the namer something: a human request of 3+ words.
+ *  Slash commands and machine-injected turns (background-task notifications,
+ *  command wrappers) name harness plumbing, not the work. */
+export function isNamingPrompt(text: string | undefined): boolean {
+  const t = (text ?? "").trim();
+  if (!t || t.startsWith("/") || t.startsWith("<")) return false;
+  if (/^\[SYSTEM NOTIFICATION/.test(t)) return false;
+  return t.split(/\s+/).length >= 3;
+}
+
+/** Enough context to pick a word that will stay right. A title alone does not
+ *  count: Claude Code titles a session from its first prompt, so it adds no
+ *  information the first prompt lacked. */
+export function namingReady(prompts: readonly string[]): boolean {
+  if (prompts.length >= MAX_NAMING_PROMPTS) return true;
+  const words = prompts.reduce((n, p) => n + p.trim().split(/\s+/).filter(Boolean).length, 0);
+  return words >= NAMING_READY_WORDS;
+}
+
+/** Words that name what MANY sessions share — the workspace, its products and
+ *  tools — so they cannot tell sessions apart. 2026-10-06: of 15 recent words,
+ *  `hive`, `nebula`, `mirror`, `lighttools` and `lenses` named the project or
+ *  tool, not the subject. */
+const BROAD_WORDS = [
+  "exowatt", "hive", "minihive", "nebula", "optics", "optical", "mirror", "mirrors",
+  "lens", "lenses", "lighttools", "receiver", "tracker", "solar", "sim", "sims",
+  "simulation", "deck", "streamdeck", "claude", "agent", "agents", "workspace",
+];
+
+/** BROAD_WORDS plus every folder on the session's path (repo names like
+ *  `terrawatt`, zone names like `active`): the session's location is shared by
+ *  every other session in the same repo. */
+export function broadWords(cwd: string): string[] {
+  const out = new Set(BROAD_WORDS);
+  for (const segment of cwd.split(/[\\/]/).filter(Boolean)) {
+    const clean = segment.replace(/^\./, "").toLowerCase();
+    if (clean.length < 3 || clean === "users") continue;
+    out.add(clean);
+    for (const part of clean.split(/[-_]/)) if (part.length >= 4) out.add(part);
+  }
+  return [...out];
+}
+
+/** The word a hand-renamed Ghostty tab asks for, or null.
+ *
+ *  Ghostty keeps a hand-set tab name (View > Change Tab Title…) as an override
+ *  above the title the plugin stamps, so the two layers disagree:
+ *  tab `claude-33832-Humain`, terminal `claude-33832-nebula` (2026-10-01).
+ *  The user renamed it because the deck word was wrong, so the deck follows
+ *  the tab. The terminal title identifies the session (`<provider>-<pid>…`,
+ *  our own stamp); the tab name supplies the word, with or without the
+ *  `<provider>-<pid>-` prefix — the pid in a hand-typed name may be stale
+ *  after a resume in the same tab, so it is not trusted. Spaces become dashes;
+ *  anything canonicalTabTitle would not accept as a word is ignored. */
+export function handRenamedWord(tabName: string, terminalTitle: string): { pid: number; word: string } | null {
+  const term = /^(?:claude|codex)-(\d+)(?:-|$)/.exec(terminalTitle.trim());
+  if (!term) return null;
+  const tab = tabName.trim();
+  if (!tab || tab === terminalTitle.trim()) return null;
+  const prefixed = /^(?:claude|codex)-\d+(?:-(.*))?$/.exec(tab);
+  if (prefixed && prefixed[1] === undefined) return null; // bare `claude-<pid>`: no word asked for
+  const word = (prefixed ? prefixed[1] : tab).trim().replace(/\s+/g, "-");
+  if (!/^[\w-]{1,24}$/.test(word)) return null;
+  return { pid: Number(term[1]), word };
+}

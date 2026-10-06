@@ -94,7 +94,7 @@ async function describe(proc: AgentProcess, launchId: string | undefined): Promi
     terminal: launchId ? "ghostty" : "unknown",
     transcriptPath: "",
     title: "",
-    firstPrompt: "",
+    prompts: [],
     deckName: "",
     kind: "interactive",
     launchId,

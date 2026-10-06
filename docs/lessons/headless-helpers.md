@@ -61,3 +61,23 @@ Generalisation for any headless-LLM helper in this repo: **the helper's own
 environment is part of its prompt whether you wrote it or not.** If the answer
 must be about the caller's data, say so explicitly, and check the output against
 the helper's own vocabulary before trusting it.
+
+## The namer's default context pulled words toward the project (2026-10-06)
+
+Of 15 recent words, `hive`, `nebula`, `mirror`, `lighttools` and `lenses` named
+the repo or product, not the subject, and `vacant` / `labeling` came from a
+thin first prompt. Two causes, both measured:
+
+- A plain `claude -p` loads the user's global CLAUDE.md and settings. Asked to
+  list project names it saw, the default call named hive, terrawatt, fresnel,
+  lt-automation and more; with `--system-prompt … --setting-sources "" --tools ""`
+  only the sentinel dir and the org instructions remained. The org-level
+  managed instructions still load — no flag removes them. `--bare` would, but
+  it drops OAuth ("Not logged in"), so it is not usable here.
+- One prompt is too little context. The namer now waits for three human
+  prompts (or one of 30+ words), and the prompt bans words that name what
+  many sessions share (`broadWords`: a fixed product list plus every folder on
+  the session's path).
+
+Escape hatch for a bad word: rename the Ghostty tab; `adoptHandRenamedTabs`
+copies the tab's word into the `.deckname` sidecar.
