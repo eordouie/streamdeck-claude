@@ -81,3 +81,17 @@ thin first prompt. Two causes, both measured:
 
 Escape hatch for a bad word: rename the Ghostty tab; `adoptHandRenamedTabs`
 copies the tab's word into the `.deckname` sidecar.
+
+**Follow-up (2026-10-20): the three-prompt bar starved one-task sessions.** A
+session whose whole job was one 17-word prompt ("set up my bamboo 3d
+printer…") sat on `Projects` for an hour, and so did a two-prompt / 28-word
+one — Ehsan read both as "no label anymore". Readiness is back to the first
+human prompt; the thin-opener case moved into the prompt itself: the model may
+answer `unknown`, which the namer treats as "ask again when another prompt
+arrives" (`askedWith`), not as a failure. Separately, "EXACTLY ONE word" made
+Sonnet glue two together — `asphaltsiting`, `capacityfactor`, `selfassessment`
+— and the 12-character cap rejected each three times, after which the namer
+gave up on the session. Now: one word of 3-16, or two short ones joined by a
+hyphen (`DECK_WORD_RE`), and the prompt offers the hyphen outright. First live
+run after the change: `asphalt-siting`, `bambu-printer`, `austin-lighthouse`
+within 8 s for the three stuck sessions.

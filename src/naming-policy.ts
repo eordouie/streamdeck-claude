@@ -134,14 +134,41 @@ export function bgJobLabel(name: string | undefined, cwdBasename: string): strin
   return trimmed === "" ? cwdBasename : trimmed;
 }
 
-/** How many of a session's prompts feed the namer, and when it may name.
- *  One prompt was the old bar, and the opener is often thin ("continue the
- *  session", "pull all"): 2026-10-06 the live words included `vacant` and
- *  `labeling`. Waiting for three prompts — or one prompt long enough to carry
- *  the topic on its own — trades a few minutes of cwd-basename label for a
- *  word that names the work. */
+/** How many of a session's prompts feed the namer. Three is context, not a
+ *  bar: 2026-10-06 the namer waited for three prompts (or 30 words) so a thin
+ *  opener ("continue the session") would not name the session `vacant`, and
+ *  by 2026-10-20 a one-task session had sat on the cwd basename (`Projects`)
+ *  for an hour. The thin-opener case is the model's to call now: it answers
+ *  UNKNOWN_WORD and the namer retries when another prompt arrives. */
 export const MAX_NAMING_PROMPTS = 3;
-export const NAMING_READY_WORDS = 30;
+
+/** The namer's reply when the prompts name no specific subject yet. Not a
+ *  failure — it waits for the next prompt (deck-namer.ts). */
+export const UNKNOWN_WORD = "unknown";
+
+/** A usable deck word: one lowercase word of 3-16 letters/digits, or two
+ *  short ones joined by a hyphen (`asphalt-siting`, `tax-error`). The 12-char
+ *  single-word cap rejected `asphaltsiting`, `capacityfactor` and
+ *  `selfassessment` three times each (2026-10-06 … 10-20) and the namer gave
+ *  up on those sessions; a model told "one word" glues two together, so the
+ *  hyphen is offered instead. The key splits the label on the hyphen
+ *  (splitLabel), and canonicalTabTitle accepts up to 24 chars. */
+export const DECK_WORD_RE = /^[a-z][a-z0-9]{2,15}(?:-[a-z][a-z0-9]{1,11})?$/;
+
+/** The model's reply as a candidate word: first line, lowercased, anything
+ *  but letters, digits, spaces and hyphens dropped, at most two tokens
+ *  joined by one hyphen. "" when nothing usable remains; DECK_WORD_RE still
+ *  judges the result. */
+export function normaliseWord(reply: string): string {
+  const line = reply.trim().split("\n")[0] ?? "";
+  const tokens = line
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .split(/[\s-]+/)
+    .filter(Boolean);
+  if (tokens[0] === UNKNOWN_WORD) return UNKNOWN_WORD;
+  return tokens.slice(0, 2).join("-");
+}
 
 /** A prompt that tells the namer something: a human request of 3+ words.
  *  Slash commands and machine-injected turns (background-task notifications,
@@ -153,13 +180,12 @@ export function isNamingPrompt(text: string | undefined): boolean {
   return t.split(/\s+/).length >= 3;
 }
 
-/** Enough context to pick a word that will stay right. A title alone does not
- *  count: Claude Code titles a session from its first prompt, so it adds no
- *  information the first prompt lacked. */
+/** Enough context to ask for a word: one human prompt (isNamingPrompt). A
+ *  title alone does not count: Claude Code titles a session from its first
+ *  prompt, so it adds no information the first prompt lacked. Whether that
+ *  one prompt names a subject is the model's call (UNKNOWN_WORD). */
 export function namingReady(prompts: readonly string[]): boolean {
-  if (prompts.length >= MAX_NAMING_PROMPTS) return true;
-  const words = prompts.reduce((n, p) => n + p.trim().split(/\s+/).filter(Boolean).length, 0);
-  return words >= NAMING_READY_WORDS;
+  return prompts.length >= 1;
 }
 
 /** Words that name what MANY sessions share — the workspace, its products and

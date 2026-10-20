@@ -17,11 +17,12 @@ of upstream:
 | Addition | What it does |
 |---|---|
 | **Ghostty tab focus** | A slot press jumps to that session's exact tab. The plugin *assigns* each tab a unique name (written to the session's tty) and matches it exactly — it never guesses. See [`docs/ghostty-focus.md`](docs/ghostty-focus.md). |
-| **One word per session** | A single headless Sonnet call names each session with one distinguishing word, once, after its first three prompts (or one long one). The word labels the key *and* the Ghostty tab. Rename the tab by hand and the key takes your word. |
+| **One word per session** | A single headless Sonnet call names each session with one distinguishing word (or two short ones, `asphalt-siting`), once, from its first real prompt; an opener that names nothing ("continue the session") gets `unknown` back and the call repeats on the next prompt. The word labels the key *and* the Ghostty tab. Rename the tab by hand and the key takes your word. |
+| **Key N = tab N** | The keys mirror the Ghostty tab strip: the session in tab 3 (Cmd+3) is on key 3, and dragging a tab moves its key within ~3 s. Sessions with no tab (background jobs) follow after the last tab. |
 | **Attention flash** | A key flashes from the moment its session finishes or needs input until you press it (or reply). Static idle doesn't flash. |
 | **Per-slot mascots** | Each key position has its own walking, blinking pixel character on idle. |
 | **Command keys** | A first-party action that runs a configured script. Currently unused on the author's deck — the command keys were retired in favor of the sibling deck-signals plugin's ambient keys — but the action remains available. |
-| **Free slot = new tab** | Press an **empty** slot and you get one fresh Ghostty tab at a bare prompt. It runs no agent: you type `claude`, `codex`, or anything else yourself. The key is held for whatever you start there (2 min), so your session becomes that key's mascot. The launch environment lives in `[launch]` in `dotfiles/streamdeck/layout.toml`. |
+| **Free slot = new tab** | Press an **empty** slot past the end of the tab strip and you get one fresh Ghostty tab at a bare prompt. It runs no agent: you type `claude`, `codex`, or anything else yourself; the session shows on the key of the tab it opened in. An empty key *inside* the strip (a tab with no agent in it) selects that tab instead. The launch environment lives in `[launch]` in `dotfiles/streamdeck/layout.toml`. |
 | **A key lights up when the agent starts** | ~1 s after you type `claude` or `codex`, not when the agent first writes something. A `ps` scan each tick claims any agent CLI attached to a terminal, so Codex — which announces nothing until you send it a message — still gets its tile immediately. A new session record also wakes the tick on creation instead of waiting out the 1 s poll. |
 | **Agent tag on the key** | A Codex session's key shows `codex` on its bottom line; a Claude session shows nothing there — the tag marks the exception, and a bare tile reads as Claude. Model and effort were tried here and removed: on a 72px key they read as noise. |
 
@@ -86,7 +87,7 @@ section of `agent-workflow.md`.
 
 ## Features
 
-- **Live per-session state** — sessions auto-fill the slots in start-time order; excess sessions beyond the slot count are simply not displayed.
+- **Live per-session state** — key N shows the session in Ghostty tab N (start-time order where no tab strip can be read); sessions beyond the key count show as a `+N` mark on the last key.
 - **Press → copy `cwd`** to clipboard and, when possible, bring the terminal to the foreground:
   - **Warp** — focuses the matching Warp tab (macOS and Windows). See [`docs/warp-focus.md`](docs/warp-focus.md).
   - **VS Code** — raises the VS Code window whose workspace matches the session
@@ -146,9 +147,9 @@ After linking, **quit + relaunch the Stream Deck app** (right-click tray icon �
 
 ## Usage
 
-Drag **Claude Session Slot** onto as many keys as you want to dedicate to live sessions. The plugin orders them by deck position (top-to-bottom, left-to-right). Optionally, drag the **Claude Setup** action onto one more key as a maintenance button.
+Drag **Claude Session Slot** onto as many keys as you want to dedicate to live sessions. The plugin orders them by deck position (top-to-bottom, left-to-right) — key 1, key 2, … — and key N shows the session in Ghostty tab N. Optionally, drag the **Claude Setup** action onto one more key as a maintenance button.
 
-Run `claude` or `codex` in a terminal — the first slot fills with its deck word, amber while working, blue when idle. Open another agent in another `cwd` and slot 2 lights up. Both providers share one slot pool, one word pool, and one tab-title convention; the only visible difference is the word `codex` on a Codex key's bottom line.
+Run `claude` or `codex` in a terminal — its tab's key fills with its deck word, amber while working, blue when idle. Open another agent in another tab and that tab's key lights up. Both providers share one slot pool, one word pool, and one tab-title convention; the only visible difference is the word `codex` on a Codex key's bottom line.
 
 Codex sessions additionally require its lifecycle hooks to be **trusted** (`/hooks` inside a Codex session) — they feed the same event log the slots read. Until then a Codex session runs normally but its slot stays empty, which looks identical to the launcher having failed.
 

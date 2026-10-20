@@ -73,6 +73,9 @@ controlled.
   the tab strip's order is NOT session start order (verified by comparing
   each session's tty against the strip). Indexing into it picks a
   confidently wrong tab the moment a tab is opened manually or dragged.
+  (Since 2026-10-20 the strip order is READ from Ghostty's API to place keys —
+  key N = tab N — but a session is still joined to its tab by the stamp, never
+  by counting; see terminal-focus-and-launch.md.)
 
 The fix was to stop reading someone else's identity and own one:
 `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` (undocumented but real — found by

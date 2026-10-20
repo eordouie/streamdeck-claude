@@ -26,9 +26,14 @@ stamp. Full rationale and the three mechanisms this replaced:
 [`docs/ghostty-focus.md`](../ghostty-focus.md).
 
 **One deliberate word per session** (`deck-namer.ts`). Once a session has real
-context (first substantial prompt and/or Claude's generated title), a single
-headless `claude -p --model haiku` call picks ONE distinguishing lowercase
-word. Persisted to `~/.claude/sessions/<sid>.deckname`, never changed for the
+context (its first human prompt of 3+ words; up to three are sent, plus
+Claude's generated title), a single headless `claude -p --model sonnet` call
+picks ONE distinguishing lowercase word — or two short ones joined by a hyphen
+(`asphalt-siting`) when one cannot name it. An opener that names no subject
+("continue the session") gets `unknown` back, which is not a failure: the call
+repeats when the next prompt arrives (2026-10-20; the 2026-10-06 rule of
+waiting for three prompts left one-task sessions on the cwd basename for
+hours). Persisted to `~/.claude/sessions/<sid>.deckname`, never changed for the
 session's life, and kept past SessionEnd so a plain `claude --resume` (same
 sid) reclaims it; dormant sidecars age out after 30 days dead. Until then the key shows the cwd
 basename. Resumed sessions whose truncated events log has no substantial
@@ -80,9 +85,21 @@ Text/Hotkey/Multi Action settings are a private schema (see `LESSONS.md`).
 Currently unused on the deck — every command key was retired in favor of
 deck-signals' ambient keys — but the action remains available.
 
+**Key N is Ghostty tab N** (2026-10-20, `slot-plan.ts` + `tab-order.ts`). The
+keys used to fill in start order, which after a resume or a reboot had nothing
+to do with the tab strip Cmd+1…Cmd+8 walks. Ghostty 1.3's dictionary exposes
+every window's tabs with their `index` and their focused terminal's title, and
+that title is the plugin's own `<provider>-<pid>[-word]` stamp — so the strip
+is read every 3 s and the session stamped on tab N sits on key N. Tab-less
+sessions (bg jobs, other terminals, a stamp not yet landed) take the keys after
+the strip; a key inside the strip with no agent stays empty and selects its tab
+on press. The strip decides, not the gesture: the press-reservation of
+`pending-launch.ts` only matters while no strip has ever been read.
+
 **A free slot opens a tab, it does not start an agent** (2026-08-17). Pressing an
-empty slot runs `ghostty-new-agent.sh` with no command: one fresh Ghostty tab at
-a bare prompt, and the user types `claude`, `codex`, or whatever else. The deck
+empty slot past the end of the strip runs `ghostty-new-agent.sh` with no
+command: one fresh Ghostty tab at a bare prompt, and the user types `claude`,
+`codex`, or whatever else. The deck
 never chooses the agent — that was the whole point of the change, and it is why
 `slot-action.ts` has one launch path (`openAgentTab`) instead of a gesture
 resolver, why the profile carries a single `launch` spec instead of a

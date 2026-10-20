@@ -120,3 +120,33 @@ Since 2026-10-06 the hand-set tab name is also an input, not only an obstacle:
 `adoptHandRenamedTabs` (tab-title.ts) reads tab/terminal pairs every 5 s and
 copies the tab's word into the `.deckname` sidecar, so both layers converge on
 the user's word.
+
+## The tab strip's order is readable, and the deck should follow it (2026-10-20)
+
+Keys filled in session start order (`startedAt`), which is launch order; after
+two resumes and a reboot it matched nothing Ehsan could see — tab 1 (Cmd+1)
+was on key 4, tab 7 on key 1. The strip itself was one property away: the 5 s
+hand-rename check already walked `windows → tabs`, and Ghostty 1.3.1's `tab`
+class has `index` (1-based in its window), a stable `id`, `selected`, `name`
+and `focused terminal`; `window` has `id` and the app has `front window`.
+`tab-order.ts` polls that walk every 3 s on its own timer (never inside the
+slow tick) and `slot-plan.ts` places the session whose pid is stamped on tab N
+on key N. Measured: the 8-tab walk answers in 0.6 s from the shell; a drag
+showed on the deck within one poll (log `tab order:` → `keys:` 74 ms later).
+
+What this does NOT change: the join is still the stamp (`claude-<pid>-word`
+on the terminal, one layer under a hand-set tab name), never a count. A tab
+whose terminal carries no stamp — a plain shell, an agent whose first stamp
+has not landed — maps to an empty key that selects the tab on press; its
+session, if any, sits after the strip until the stamp lands (a one-key hop of
+a few seconds on every new session). Sessions with no tab (bg jobs) always
+follow the strip.
+
+Two mechanics measured while testing:
+- `perform action "move_tab:-1" on <terminal>` moves the window's SELECTED
+  tab, not the terminal's own tab (it moved the tab Ehsan was typing in;
+  `move_tab:-1` on the selected tab put it back). Do not use it to reorder a
+  background tab from a script.
+- `select tab t` + `activate window w` on a tab found by `id` answers in
+  0.19 s and is the empty-key press path (`selectTabById`).
+

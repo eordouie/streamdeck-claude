@@ -6,21 +6,31 @@ import type { DisplayEntry } from "./state-tracker.js";
 import { liveBgAgents } from "./session-events.js";
 import { canonicalTabTitle } from "./tab-title.js";
 import { PendingLaunches } from "./pending-launch.js";
+import { currentTabs } from "./tab-order.js";
+import { planSlots, type TabEntry } from "./slot-plan.js";
 
-/**
- * Walks the ordered action instances and pushes the right SVG onto each key.
- * Per-slot dedup lives in `slotAction.getState(id).lastSvg` — if the SVG is
- * unchanged we skip the setImage call but still refresh the clipboard payload
- * (cwd may have moved underneath us between ticks for the same sessionId).
- */
-export async function renderAll(
-  slotAction: SlotAction,
+/** Keys left empty by the last render — the animation loop blinks their
+ *  mascots. Counted from the plan, not from `entries < keys`: with the strip
+ *  mirrored, a key can be empty while sessions are hidden (a tab with no
+ *  agent in it beside more sessions than keys). */
+let lastEmptyKeys = 0;
+/** The last key plan logged, so a change in who sits where is one log line
+ *  (the deck itself is the only other record of it). */
+let lastPlanLine = "";
+
+export function emptyKeyCount(): number {
+  return lastEmptyKeys;
+}
+
+/** Start-order fill, used only while no tab strip has ever been read (no
+ *  Automation grant, Ghostty without the dictionary, another platform): a
+ *  key reserved by a just-opened tab waits for the session that registers
+ *  from it (launch id), the rest fill top-left to bottom-right. */
+function legacyPlan(
   entries: DisplayEntry[],
-  frame: number,
+  ordered: readonly { id: string }[],
   pendingLaunches: PendingLaunches,
-): Promise<void> {
-  const ordered = slotAction.orderedActions();
-  pendingLaunches.expire();
+): { assigned: Array<DisplayEntry | undefined>; hidden: number } {
   const assigned: Array<DisplayEntry | undefined> = Array.from({ length: ordered.length });
   const consumed = new Set<DisplayEntry>();
   for (const entry of entries) {
@@ -47,6 +57,48 @@ export async function renderAll(
   // absent — absent and not-running look identical otherwise.
   const reserved = pendingLaunches.values().length;
   const hidden = Math.max(0, entries.length - (ordered.length - reserved));
+  return { assigned, hidden };
+}
+
+/**
+ * Walks the ordered action instances and pushes the right SVG onto each key.
+ * Per-slot dedup lives in `slotAction.getState(id).lastSvg` — if the SVG is
+ * unchanged we skip the setImage call but still refresh the clipboard payload
+ * (cwd may have moved underneath us between ticks for the same sessionId).
+ */
+export async function renderAll(
+  slotAction: SlotAction,
+  entries: DisplayEntry[],
+  frame: number,
+  pendingLaunches: PendingLaunches,
+): Promise<void> {
+  const ordered = slotAction.orderedActions();
+  pendingLaunches.expire();
+  // Key N mirrors Ghostty tab N once the strip has been read (tab-order.ts).
+  // The press-reservation is irrelevant then: a new tab opens at the end of
+  // the strip, so its session shows on the first key past the strip whatever
+  // key was pressed — the strip, not the gesture, decides.
+  const strip = currentTabs();
+  let assigned: Array<DisplayEntry | undefined>;
+  let tabs: Array<TabEntry | undefined>;
+  let hidden: number;
+  if (strip !== null) {
+    const plan = planSlots(entries, strip, ordered.length);
+    assigned = plan.assigned;
+    tabs = plan.tabs;
+    hidden = plan.hidden;
+  } else {
+    ({ assigned, hidden } = legacyPlan(entries, ordered, pendingLaunches));
+    tabs = Array.from({ length: ordered.length });
+  }
+  lastEmptyKeys = assigned.filter((e) => e === undefined).length;
+  const planLine = assigned
+    .map((e, i) => `${i + 1}=${e ? `${e.session.pid ?? "?"}:${e.session.label}` : tabs[i] ? `(tab ${tabs[i]!.index})` : "-"}`)
+    .join(" ") + (hidden > 0 ? ` hidden=${hidden}` : "") + (strip === null ? " (start order: no strip read yet)" : "");
+  if (planLine !== lastPlanLine) {
+    streamDeck.logger.info(`keys: ${planLine}`);
+    lastPlanLine = planLine;
+  }
   const pending: Promise<void>[] = [];
   for (let i = 0; i < ordered.length; i++) {
     const action = ordered[i];
@@ -92,6 +144,9 @@ export async function renderAll(
     slotState.terminal = entry?.session.terminal;
     slotState.canonicalTitle = entry ? canonicalTabTitle(entry.session) : undefined;
     slotState.pid = entry?.session.pid;
+    // An empty key inside the strip mirrors a tab with no agent in it; a
+    // press selects that tab instead of opening another one.
+    slotState.tab = entry ? undefined : tabs[i];
     // entry undefined (slot vide) → killable=true, sans risque : onKeyDown sort tôt sur un slot vide avant de lire ce flag.
     // Killable for BOTH providers: the bridge now records the real codex pid
     // (walked up from the hook, verified to be the codex binary), so a kill-hold
