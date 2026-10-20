@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import streamDeck from "@elgato/streamdeck";
-import { broadWords, namingReady, selfReferentialWords, takenWordsFromDisk } from "./naming-policy.js";
+import { broadWords, DECK_WORD_RE, namingReady, normaliseWord, selfReferentialWords, takenWordsFromDisk, UNKNOWN_WORD } from "./naming-policy.js";
 import { spawnCapture } from "./spawn-capture.js";
 import { WSL_SESSIONS_DIR } from "./env.js";
 
@@ -37,7 +37,6 @@ const CLAUDE_BIN_CANDIDATES = [
 const NAMER_MODEL = "sonnet";
 const NAMER_TIMEOUT_MS = 45_000;
 const RETRY_COOLDOWN_MS = 120_000;
-const WORD_RE = /^[a-z][a-z0-9-]{2,11}$/;
 const REJECT = new Set(["session", "claude", "code", "project", "projects", "help", "question", "task", "work"]);
 
 /** Backstop against the namer naming a session after its own sentinel cwd —
@@ -54,6 +53,10 @@ const known = new Map<string, string>();
 const gaveUp = new Set<string>();
 const MAX_NAMER_FAILURES = 3;
 const failures = new Map<string, number>();
+/** Prompt count at the last UNKNOWN_WORD answer, per session: the model saw
+ *  nothing to name yet, so ask again only once another prompt has arrived —
+ *  not every cooldown with the same thin opener. */
+const askedWith = new Map<string, number>();
 /** Naming runs strictly one at a time: two sessions named concurrently each
  *  checked a taken-list captured before the other finished, and could both
  *  land the same word — which then collides in the Window-menu exact match
@@ -103,6 +106,7 @@ export function maybeName(opts: {
   if (known.get(sessionId)) return;
   if (gaveUp.has(sessionId)) return;
   if (!namingReady(prompts)) return; // don't rush — wait for real context
+  if ((askedWith.get(sessionId) ?? -1) >= prompts.length) return; // answered `unknown` on these
   if (inflight.has(sessionId)) return;
   if ((cooldownUntil.get(sessionId) ?? 0) > Date.now()) return;
   inflight.add(sessionId);
@@ -164,11 +168,15 @@ async function nameSession(
   const broad = broadWords(cwd);
   const system = [
     "You label a developer's parallel agent sessions so they can tell them apart at a glance.",
-    "Reply with EXACTLY ONE lowercase word (letters, 3-12 chars, no punctuation): the specific",
+    "Reply with ONE lowercase word (letters, 3-16 chars, no punctuation): the specific",
     "subject of THIS session — the component, study, artifact, bug or question being worked on.",
+    "When one word cannot name it, reply with two short words joined by a hyphen",
+    "(asphalt-siting, tax-error) — never run two words together as one.",
     "Many sessions share the same company, product, repo and tool, so a word naming those",
     "identifies nothing. Prefer the narrowest concrete noun the prompts support",
     "(e.g. calorimeter, dfmea, shading, crossfire), not the umbrella it belongs to.",
+    `If the requests name no specific subject yet (an opener such as "continue the session"`,
+    `or "pull all"), reply exactly: ${UNKNOWN_WORD}`,
     "Reply with ONLY the word.",
   ].join("\n");
   const prompt = [
@@ -199,8 +207,15 @@ async function nameSession(
     );
     return;
   }
-  const word = (r.stdout.trim().split(/\s+/)[0] ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "");
-  if (!WORD_RE.test(word) || REJECT.has(word) || taken.includes(word) || broad.includes(word)) {
+  const word = normaliseWord(r.stdout);
+  if (word === UNKNOWN_WORD) {
+    // Nothing to name yet — not a failure. The next prompt re-opens the
+    // question; until then the key keeps the cwd basename.
+    askedWith.set(sessionId, prompts.length);
+    streamDeck.logger.info(`namer: no subject yet for ${sessionId} (${prompts.length} prompt(s)); waiting for the next prompt`);
+    return;
+  }
+  if (!DECK_WORD_RE.test(word) || REJECT.has(word) || taken.includes(word) || broad.includes(word)) {
     // Counted as a failure: a model that keeps answering with a banned word
     // would otherwise be re-asked every RETRY_COOLDOWN_MS forever.
     const n = (failures.get(sessionId) ?? 0) + 1;

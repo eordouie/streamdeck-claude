@@ -1,4 +1,5 @@
 import { spawnCapture } from "./spawn-capture.js";
+import type { TabEntry } from "./slot-plan.js";
 
 /**
  * Ghostty's own AppleScript dictionary (Ghostty 1.3+), used for the one thing
@@ -24,6 +25,9 @@ import { spawnCapture } from "./spawn-capture.js";
 const GHOSTTY = 'application id "com.mitchellh.ghostty"';
 const BACKOFF_MS = 60_000;
 const TIMEOUT_MS = 2_000;
+/** The strip walk visits every tab; 7 tabs answered in 0.6 s from the shell,
+ *  and a slow answer is worth more than a backoff here. */
+const LIST_TIMEOUT_MS = 4_000;
 
 let unavailableUntil = 0;
 /** Why the last call failed ("" once one succeeds). -1743 = no Automation
@@ -41,9 +45,9 @@ export function appleScriptString(text: string): string {
   return `"${text.replace(/"/g, '" & quote & "')}"`;
 }
 
-type ScriptAnswer = { ok: true; out: string } | { ok: false };
+type ScriptAnswer = { ok: true; out: string } | { ok: false; notRunning?: true };
 
-async function runGhosttyScript(body: string): Promise<ScriptAnswer> {
+async function runGhosttyScript(body: string, timeoutMs = TIMEOUT_MS): Promise<ScriptAnswer> {
   if (Date.now() < unavailableUntil) return { ok: false };
   const script = `
     if not (${GHOSTTY} is running) then return "ERR:not-running"
@@ -51,16 +55,16 @@ async function runGhosttyScript(body: string): Promise<ScriptAnswer> {
       ${body}
     end tell
   `;
-  const r = await spawnCapture("/usr/bin/osascript", ["-e", script], { timeoutMs: TIMEOUT_MS });
+  const r = await spawnCapture("/usr/bin/osascript", ["-e", script], { timeoutMs });
   if (r.err || r.timedOut || r.code !== 0) {
     unavailableUntil = Date.now() + BACKOFF_MS;
-    lastFailure = r.err ?? (r.timedOut ? `timeout after ${TIMEOUT_MS} ms` : r.stderr.trim() || `exit ${r.code}`);
+    lastFailure = r.err ?? (r.timedOut ? `timeout after ${timeoutMs} ms` : r.stderr.trim() || `exit ${r.code}`);
     return { ok: false };
   }
   lastFailure = "";
   const out = r.stdout.trim();
   // Not running is an answer about Ghostty, not about the API — no backoff.
-  if (out === "ERR:not-running") return { ok: false };
+  if (out === "ERR:not-running") return { ok: false, notRunning: true };
   return { ok: true, out };
 }
 
@@ -105,27 +109,65 @@ export async function frontTerminalTitle(): Promise<string | null> {
   return r.ok ? r.out : null;
 }
 
-/** Every tab's name paired with the title of its focused terminal, or null
- *  when the API can't be asked. The two differ exactly when the tab was
- *  renamed by hand (see the header). */
-export async function listTabTerminalPairs(): Promise<{ tab: string; terminal: string }[] | null> {
+/**
+ * Every tab of every window, with the stable ids and the 1-based index that
+ * Cmd+N selects, the tab's name and the title of its focused terminal. The two
+ * names differ exactly when the tab was renamed by hand (see the header).
+ * `[]` when Ghostty is not running (no tabs is the true answer); null when the
+ * API can't be asked (grant missing, consent prompt open, timeout) so callers
+ * keep whatever they last knew. The per-window walk is deliberate: a nested
+ * `every tab of every window` specifier hung for 80 s on 1.3.1.
+ */
+export async function listTabs(): Promise<TabEntry[] | null> {
   const r = await runGhosttyScript(`
       set sep to character id 9
+      set fid to ""
+      try
+        set fid to id of front window
+      end try
       set out to {}
       repeat with w in windows
+        set wid to id of w
+        set isFront to "0"
+        if wid is fid then set isFront to "1"
         repeat with t in tabs of w
           try
-            set end of out to (name of t) & sep & (name of focused terminal of t)
+            set end of out to wid & sep & isFront & sep & (id of t) & sep & (index of t) & sep & (selected of t) & sep & (name of t) & sep & (name of focused terminal of t)
           end try
         end repeat
       end repeat
       set AppleScript's text item delimiters to linefeed
       return out as text
+  `, LIST_TIMEOUT_MS);
+  if (!r.ok) return r.notRunning ? [] : null;
+  const out: TabEntry[] = [];
+  for (const line of r.out.split("\n")) {
+    const parts = line.split("\t");
+    if (parts.length !== 7) continue;
+    const [windowId, front, tabId, index, selected, tab, terminal] = parts;
+    const idx = Number(index);
+    if (!windowId || !tabId || !Number.isInteger(idx) || idx < 1) continue;
+    out.push({ windowId, tabId, index: idx, front: front === "1", selected: selected === "true", tab: tab.trim(), terminal: terminal.trim() });
+  }
+  return out;
+}
+
+/** Select the tab with this stable id and bring its window forward. Used for
+ *  an empty deck key that mirrors a tab with no agent in it; the id comes
+ *  from a listTabs snapshot a few seconds old at most. */
+export async function selectTabById(tabId: string): Promise<"selected" | "no-match" | "unavailable"> {
+  const r = await runGhosttyScript(`
+      repeat with w in windows
+        repeat with t in tabs of w
+          if (id of t) is ${appleScriptString(tabId)} then
+            select tab t
+            activate window w
+            return "OK"
+          end if
+        end repeat
+      end repeat
+      return "ERR:no-match"
   `);
-  if (!r.ok) return null;
-  return r.out
-    .split("\n")
-    .map((l) => l.split("\t"))
-    .filter((parts) => parts.length === 2)
-    .map(([tab, terminal]) => ({ tab: tab.trim(), terminal: terminal.trim() }));
+  if (!r.ok) return "unavailable";
+  return r.out === "OK" ? "selected" : "no-match";
 }

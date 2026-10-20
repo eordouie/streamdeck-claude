@@ -5,7 +5,8 @@ import { SetupAction } from "./setup-action.js";
 import { CommandAction } from "./command-action.js";
 import { watchForReload } from "./reload-watcher.js";
 import { createStateTracker } from "./state-tracker.js";
-import { renderAll } from "./render-loop.js";
+import { emptyKeyCount, renderAll } from "./render-loop.js";
+import { startTabOrderPoll } from "./tab-order.js";
 import { wipeAllEventLogs, wipeSessionEventLog, SESSION_SOURCES, type SessionOrigin, type SessionProvider } from "./sessions.js";
 import { watchSessionDirs } from "./session-watch.js";
 import { killSession } from "./kill-session.js";
@@ -101,6 +102,12 @@ await streamDeck.connect();
 
 watchForReload({ pollMs: POLL_MS });
 
+// Key N mirrors Ghostty tab N: the strip is polled on its own timer and a
+// change in it re-renders at once rather than on the next second.
+startTabOrderPoll(() => {
+  void runSlowTick();
+});
+
 setInterval(runSlowTick, POLL_MS);
 // New sessions light their key on creation rather than on the next poll.
 watchSessionDirs(SESSION_SOURCES.map((source) => source.path), () => {
@@ -116,8 +123,9 @@ setInterval(async () => {
   // (no animated motif AND no marquee-overflowing label). Visible empty
   // slots count as animated when the empty state is: the resident mascot's
   // blink rides wall-clock, and the tracker only knows about live entries.
-  const emptiesAnimate =
-    isAnimated("empty") && tracker.getEntries().length < slotAction.orderedActions().length;
+  // Counted from the last plan: with the strip mirrored, a tab without an
+  // agent leaves its key empty however many sessions there are.
+  const emptiesAnimate = isAnimated("empty") && emptyKeyCount() > 0;
   if (!tracker.needsAnimation() && !slotAction.anyKillArming() && !emptiesAnimate) {
     animateRunning = false;
     return;

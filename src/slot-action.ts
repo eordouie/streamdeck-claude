@@ -15,6 +15,8 @@ import { spawnCapture } from "./spawn-capture.js";
 import type { LaunchSpec } from "./provider-types.js";
 import { buildLaunchCommand } from "./launch-command.js";
 import { PendingLaunches } from "./pending-launch.js";
+import { selectTabById } from "./ghostty-script.js";
+import type { TabEntry } from "./slot-plan.js";
 
 /** Hold ≥ this long → wipe just this agent's event log (palier 1). */
 export const LONG_PRESS_MS = 500;
@@ -49,6 +51,10 @@ export interface SlotState {
   /** False quand la session n'expose pas de pid. Posé chaque tick par le
    *  render-loop. Les agents bg SONT killable : leur pid est un process dédié. */
   killable?: boolean;
+  /** EMPTY key only: the Ghostty tab this key mirrors (key N = tab N) when
+   *  that tab holds no agent. A press selects it. Undefined past the end of
+   *  the strip, where a press opens a new tab. Set each tick by the render loop. */
+  tab?: TabEntry;
 }
 
 @action({ UUID: "com.julien.claudesessions.slot" })
@@ -115,6 +121,10 @@ export class SlotAction extends SingletonAction {
       // `provider` joins the bound-slot test rather than defaulting to Claude:
       // a slot that cannot say which agent it holds must not have that agent
       // guessed for it, because the guess ends in a wipe or a SIGTERM.
+      if (slot?.tab) {
+        void this.selectMirroredTab(ev, slot.tab);
+        return;
+      }
       void this.openAgentTab(ev);
       return;
     }
@@ -176,6 +186,16 @@ export class SlotAction extends SingletonAction {
       return;
     }
     // Relâché après 3s → kill déjà fired, no-op.
+  }
+
+  /** The key mirrors a tab that holds no agent (a plain shell, an agent not
+   *  yet registered): go there, as Cmd+N would. By the tab's stable id from
+   *  the strip snapshot — never by position, which can have moved since. */
+  private async selectMirroredTab(ev: KeyDownEvent, tab: TabEntry): Promise<void> {
+    await spawnCapture("/usr/bin/open", ["-b", "com.mitchellh.ghostty"], { timeoutMs: 2000 });
+    const r = await selectTabById(tab.tabId);
+    streamDeck.logger.info(`empty-key press: mirrored tab ${tab.index} "${tab.tab}" -> ${r}`);
+    if (r !== "selected") await ev.action.showAlert();
   }
 
   /** Opens one bare agent tab and reserves this key for whatever agent the user

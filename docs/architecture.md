@@ -4,7 +4,9 @@ How the plugin discovers Claude Code and Codex sessions, derives state, and rend
 
 ## Session discovery
 
-Claude Code drops one JSON file per running CLI session under `~/.claude/sessions/<pid>.json`. The plugin reads that directory once per second, batches one `ps -o pid=,stat= -p <pids>` check to filter out stale files (judged per record by its own pid — several records can share a session id; a stopped `T` process is kept but gets no key, see `record-liveness.ts`), sorts the live sessions by `startedAt`, and renders an SVG per Stream Deck slot via `setImage`.
+Claude Code drops one JSON file per running CLI session under `~/.claude/sessions/<pid>.json`. The plugin reads that directory once per second, batches one `ps -o pid=,stat= -p <pids>` check to filter out stale files (judged per record by its own pid — several records can share a session id; a stopped `T` process is kept but gets no key, see `record-liveness.ts`), sorts the live sessions by `startedAt`, places them on keys, and renders an SVG per Stream Deck slot via `setImage`.
+
+Key placement mirrors the Ghostty tab strip (`slot-plan.ts`, pure and tested): `tab-order.ts` polls Ghostty's AppleScript every 3 s for every window's tabs (front window first, by `index`) and the title of each tab's focused terminal, which carries the `<provider>-<pid>[-word]` stamp `tab-title.ts` writes; the session with that pid goes on that tab's key. Sessions with no identifiable tab (background jobs, other terminals, a stamp not yet landed) fill the keys after the strip in start order; keys inside the strip that no session claims stay empty and select their tab on press. A failed read keeps the last snapshot; before any read succeeds, the start-order fill with the press-reservation (`pending-launch.ts`) runs instead.
 
 When the plugin runs on a Windows host, two session directories are scanned in parallel:
 

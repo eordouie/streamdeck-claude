@@ -128,7 +128,7 @@ test("bgJobLabel trims but does not truncate — the renderer wraps and escapes"
 
 // --- naming readiness, broad words, hand-renamed tabs ---
 
-import { broadWords, handRenamedWord, isNamingPrompt, namingReady } from "./naming-policy.js";
+import { broadWords, DECK_WORD_RE, handRenamedWord, isNamingPrompt, namingReady, normaliseWord, UNKNOWN_WORD } from "./naming-policy.js";
 
 test("isNamingPrompt drops slash commands, wrappers, notifications and short openers", () => {
   assert.equal(isNamingPrompt("/pull-all and then go"), false);
@@ -138,12 +138,29 @@ test("isNamingPrompt drops slash commands, wrappers, notifications and short ope
   assert.equal(isNamingPrompt("tune the calorimeter aperture"), true);
 });
 
-test("namingReady waits for three prompts or one long enough to carry the topic", () => {
+test("namingReady asks on the first human prompt; thin openers are the model's call", () => {
   assert.equal(namingReady([]), false);
-  assert.equal(namingReady(["continue the session please"]), false);
-  assert.equal(namingReady(["continue the session please", "pull all repos now"]), false);
-  assert.equal(namingReady(["a b c", "d e f", "g h i"]), true);
-  assert.equal(namingReady([Array.from({ length: 30 }, (_, i) => `w${i}`).join(" ")]), true);
+  assert.equal(namingReady(["continue the session please"]), true);
+  assert.equal(namingReady(["set up my bamboo 3d printer and connect it to the lab one"]), true);
+});
+
+test("normaliseWord keeps one word or a hyphenated pair, and passes `unknown` through", () => {
+  assert.equal(normaliseWord("asphalt-siting\n"), "asphalt-siting");
+  assert.equal(normaliseWord("Asphalt siting"), "asphalt-siting");
+  assert.equal(normaliseWord("**calorimeter**."), "calorimeter");
+  assert.equal(normaliseWord("tax error report"), "tax-error");
+  assert.equal(normaliseWord("Unknown"), UNKNOWN_WORD);
+  assert.equal(normaliseWord("unknown subject"), UNKNOWN_WORD);
+  assert.equal(normaliseWord(""), "");
+});
+
+test("DECK_WORD_RE: 3-16 letters, or two short words with one hyphen", () => {
+  for (const ok of ["dfmea", "asphaltsiting", "asphalt-siting", "tax-error", "ghostty-restore", "capacityfactor"]) {
+    assert.equal(DECK_WORD_RE.test(ok), true, ok);
+  }
+  for (const bad of ["ab", "a-b", "-siting", "asphalt-", "three-part-word", "seventeencharacters", "Asphalt", "unknown-"]) {
+    assert.equal(DECK_WORD_RE.test(bad), false, bad);
+  }
 });
 
 test("broadWords bans shared product words and every folder on the session's path", () => {

@@ -4,7 +4,8 @@ import streamDeck from "@elgato/streamdeck";
 import { canonicalTabTitle, handRenamedWord } from "./naming-policy.js";
 import { adoptName } from "./deck-namer.js";
 import { spawnCapture } from "./spawn-capture.js";
-import { ghosttyScriptFailure, listTabTerminalPairs, listTerminalTitles } from "./ghostty-script.js";
+import { ghosttyScriptFailure, listTerminalTitles } from "./ghostty-script.js";
+import { currentTabs } from "./tab-order.js";
 import type { SessionInfo } from "./sessions.js";
 
 /**
@@ -164,18 +165,20 @@ export async function ensureTabTitles(sessions: readonly SessionInfo[]): Promise
   }
 }
 
-/** One Ghostty read per interval is enough: a rename is a rare, human-speed act. */
+/** One check per interval is enough: a rename is a rare, human-speed act. */
 const ADOPT_INTERVAL_MS = 5_000;
 let lastAdoptCheck = 0;
 
 /** A tab the user renamed by hand names the session: its word replaces the
  *  deck word (handRenamedWord). The next tick relabels the key and re-stamps
- *  the terminal with the adopted word, so the two layers agree again. */
+ *  the terminal with the adopted word, so the two layers agree again. Reads
+ *  the strip snapshot the tab-order poller keeps (3 s old at most) rather
+ *  than asking Ghostty again. */
 async function adoptHandRenamedTabs(sessions: readonly SessionInfo[]): Promise<void> {
   const now = Date.now();
   if (now - lastAdoptCheck < ADOPT_INTERVAL_MS) return;
   lastAdoptCheck = now;
-  const pairs = await listTabTerminalPairs();
+  const pairs = currentTabs();
   if (!pairs) return;
   const byPid = new Map(
     sessions.filter((s) => s.kind !== "bg" && s.pid !== undefined && s.terminal === "ghostty").map((s) => [s.pid, s]),
