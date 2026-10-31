@@ -1,7 +1,7 @@
 # Deck words go missing and name the wrong thing: effort log
 
 > **Status:** BUILT, RUNNING LIVE and verified from the plugin log — branch
-> `feat/deck-naming-quality`, PR to `ghostty-focus`; 155 tests green.
+> `feat/deck-naming-quality`, PR #10 to `ghostty-focus`; 156 tests green.
 > **Last updated:** 2026-10-31
 > **Next step:** Ehsan merges the PR (streamdeck-claude is outside the
 > self-merge grant) and watches the next few real sessions' words; the
