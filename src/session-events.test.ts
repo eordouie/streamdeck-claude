@@ -68,6 +68,7 @@ test("prompts collects the first three human prompts and then stays fixed", () =
   ]
     .map((e) => JSON.stringify(e))
     .join("\n");
+  assert.equal(reduceEvents(parseEventLog(log)).firstPromptAt, 3); // the first COLLECTED prompt, not "hi"
   assert.deepEqual(reduceEvents(parseEventLog(log)).prompts, [
     "brutally audit the mirror optimizer sweep",
     "now refactor the tolerance budget tab",

@@ -212,6 +212,18 @@ produce that evidence, and prescribes only cures verified for each. When the
 check cannot tell causes apart (the Window-menu fallback cannot tell a renamed
 tab from another writer), say so instead of picking one.
 
+## A validator that refuses an answer and re-sends the same question gets silence (2026-10-31)
+
+The namer's shape rule refused `cone-visualization`, `hotel-reimbursement`,
+`amt-3921` and `az-el` — all fine labels — and the retry re-sent the
+identical prompt, so the model answered identically, three times, and the
+session was left bare. Any check that can refuse a model's answer must
+carry the reason into the re-ask (`rejectionReason`) and end in a clipped
+answer (`clipWord`), never in nothing. And a helper that names or judges a
+conversation needs the first exchange, not the first message: the reply
+restates a dictated request in clean words (`heresder` → `herdr upgrade`).
+Detail: `docs/lessons/headless-helpers.md`.
+
 ## gh on this fork resolves PRs to upstream by default (2026-08-28)
 
 `gh pr create` here targets the fork parent (JulienCr/streamdeck-claude)

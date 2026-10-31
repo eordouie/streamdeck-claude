@@ -128,7 +128,18 @@ test("bgJobLabel trims but does not truncate — the renderer wraps and escapes"
 
 // --- naming readiness, broad words, hand-renamed tabs ---
 
-import { broadWords, DECK_WORD_RE, handRenamedWord, isNamingPrompt, namingReady, normaliseWord, UNKNOWN_WORD } from "./naming-policy.js";
+import {
+  broadWords,
+  clipWord,
+  DECK_WORD_RE,
+  handRenamedWord,
+  isNamingPrompt,
+  NAMING_REPLY_WAIT_MS,
+  namingReady,
+  normaliseWord,
+  rejectionReason,
+  UNKNOWN_WORD,
+} from "./naming-policy.js";
 
 test("isNamingPrompt drops slash commands, wrappers, notifications and short openers", () => {
   assert.equal(isNamingPrompt("/pull-all and then go"), false);
@@ -138,10 +149,18 @@ test("isNamingPrompt drops slash commands, wrappers, notifications and short ope
   assert.equal(isNamingPrompt("tune the calorimeter aperture"), true);
 });
 
-test("namingReady asks on the first human prompt; thin openers are the model's call", () => {
-  assert.equal(namingReady([]), false);
-  assert.equal(namingReady(["continue the session please"]), true);
-  assert.equal(namingReady(["set up my bamboo 3d printer and connect it to the lab one"]), true);
+test("namingReady waits for the assistant's reply, or 90 s after the first prompt", () => {
+  const t0 = 1_700_000_000_000;
+  const prompts = ["set up my bamboo 3d printer and connect it to the lab one"];
+  assert.equal(namingReady({ prompts: [], reply: "", firstPromptAt: 0 }, t0), false);
+  assert.equal(namingReady({ prompts: [], reply: "Sure, which printer?", firstPromptAt: t0 }, t0), false);
+  assert.equal(namingReady({ prompts, reply: "", firstPromptAt: t0 }, t0 + 10_000), false);
+  assert.equal(namingReady({ prompts, reply: "Reading the printer's manual first.", firstPromptAt: t0 }, t0 + 10_000), true);
+  assert.equal(namingReady({ prompts, reply: "", firstPromptAt: t0 }, t0 + NAMING_REPLY_WAIT_MS), true);
+  // A prompt whose time is unknown (old events, unreadable transcript) is not kept waiting.
+  assert.equal(namingReady({ prompts, reply: "", firstPromptAt: 0 }, t0), true);
+  // Thin openers are the model's call (UNKNOWN_WORD), not a readiness gate.
+  assert.equal(namingReady({ prompts: ["continue the session please"], reply: "On it.", firstPromptAt: t0 }, t0), true);
 });
 
 test("normaliseWord keeps one word or a hyphenated pair, and passes `unknown` through", () => {
@@ -154,13 +173,44 @@ test("normaliseWord keeps one word or a hyphenated pair, and passes `unknown` th
   assert.equal(normaliseWord(""), "");
 });
 
-test("DECK_WORD_RE: 3-16 letters, or two short words with one hyphen", () => {
-  for (const ok of ["dfmea", "asphaltsiting", "asphalt-siting", "tax-error", "ghostty-restore", "capacityfactor"]) {
+test("DECK_WORD_RE: one or two tokens of letters/digits, 20 chars in all", () => {
+  for (const ok of [
+    "dfmea", "asphaltsiting", "asphalt-siting", "tax-error", "ghostty-restore", "capacityfactor",
+    // every label the old rule refused three times and then gave up on
+    "cone-visualization", "hotel-reimbursement", "amt-3921", "3921-amt", "az-el", "ab",
+  ]) {
     assert.equal(DECK_WORD_RE.test(ok), true, ok);
   }
-  for (const bad of ["ab", "a-b", "-siting", "asphalt-", "three-part-word", "seventeencharacters", "Asphalt", "unknown-"]) {
+  for (const bad of [
+    "a", "a-b", "-siting", "asphalt-", "three-part-word", "twentyonecharacterslo", "hotel-reimbursementss",
+    "Asphalt", "unknown-", "3921", "12-34", "tab naming", "",
+  ]) {
     assert.equal(DECK_WORD_RE.test(bad), false, bad);
   }
+});
+
+test("clipWord makes a refused answer fit, or gives up to empty", () => {
+  assert.equal(clipWord("cone-visualization"), "cone-visualization"); // fits already
+  assert.equal(clipWord("Cone visualization study"), "cone-visualization");
+  assert.equal(clipWord("hotel reimbursementss"), "hotel"); // 21 chars → first token
+  assert.equal(clipWord("a-b"), ""); // one-letter tokens are dropped, nothing left
+  assert.equal(clipWord("x herdr"), "herdr");
+  assert.equal(clipWord("superlongrunontokenwithoutbreaks"), "superlongrunontokenw");
+  assert.equal(clipWord("12345678901234567890123"), ""); // digits only never qualify
+  assert.equal(clipWord(""), "");
+});
+
+test("rejectionReason names the rule a candidate breaks, in words a model can act on", () => {
+  const bans = { generic: new Set(["session", "help"]), broad: ["hive", "ehsan"], taken: ["dfmea"] };
+  assert.equal(rejectionReason("calorimeter", bans), "");
+  assert.equal(rejectionReason("herdr-upgrade", bans), "");
+  assert.match(rejectionReason("", bans), /no usable letters/);
+  assert.match(rejectionReason("session", bans), /generic/);
+  assert.match(rejectionReason("hive", bans), /many sessions share/);
+  assert.match(rejectionReason("dfmea", bans), /another live session/);
+  assert.match(rejectionReason("hotel-reimbursementss", bans), /21 characters; the limit is 20/);
+  assert.match(rejectionReason("three-part-word", bans), /one or two words/);
+  assert.match(rejectionReason("3921", bans), /one or two words/);
 });
 
 test("broadWords bans shared product words and every folder on the session's path", () => {

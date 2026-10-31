@@ -95,6 +95,8 @@ async function describe(proc: AgentProcess, launchId: string | undefined): Promi
     transcriptPath: "",
     title: "",
     prompts: [],
+    namingReply: "",
+    firstPromptAt: 0,
     deckName: "",
     kind: "interactive",
     launchId,
