@@ -82,6 +82,9 @@ export interface DerivedState {
   /** The session's first MAX_NAMING_PROMPTS human prompts (isNamingPrompt),
    *  clipped by the hook — context for the one-time deck-name pick. */
   prompts: string[];
+  /** Hook timestamp of the first collected prompt (ms epoch); 0 before one
+   *  arrives. Starts the namer's wait for the assistant's reply. */
+  firstPromptAt: number;
   /** Launch correlation ID captured at SessionStart, if launched by the deck. */
   launchId?: string;
 }
@@ -103,7 +106,7 @@ interface ReducerState extends Omit<DerivedState, "agentLastSeen"> {
   agentsSeen: Record<string, number>;
 }
 
-const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], legacyStarts: [], agentsSeen: {}, terminal: "unknown", transcriptPath: "", prompts: [], launchId: undefined, inTurn: false };
+const ZERO: ReducerState = { awaiting: false, awaitingPermission: false, awaitingQuestion: false, awaitingPlan: false, errored: false, subagentDepth: 0, todos: [], legacyStarts: [], agentsSeen: {}, terminal: "unknown", transcriptPath: "", prompts: [], firstPromptAt: 0, launchId: undefined, inTurn: false };
 
 /** How long an agent stays believed-live with no further sighting. Must
  *  exceed the longest legitimate silent gap — an agent inside one long tool
@@ -156,6 +159,7 @@ function applyEvent(state: ReducerState, ev: SessionEvent): ReducerState {
       // a session named after harness plumbing is worse than unnamed.
       if (state.prompts.length < MAX_NAMING_PROMPTS && isNamingPrompt(ev.prompt)) {
         next.prompts = [...state.prompts, (ev.prompt ?? "").trim()];
+        if (state.prompts.length === 0) next.firstPromptAt = ev.ts;
       }
       return next;
     }

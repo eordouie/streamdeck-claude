@@ -26,22 +26,34 @@ stamp. Full rationale and the three mechanisms this replaced:
 [`docs/ghostty-focus.md`](../ghostty-focus.md).
 
 **One deliberate word per session** (`deck-namer.ts`). Once a session has real
-context (its first human prompt of 3+ words; up to three are sent, plus
-Claude's generated title), a single headless `claude -p --model sonnet` call
-picks ONE distinguishing lowercase word — or two short ones joined by a hyphen
-(`asphalt-siting`) when one cannot name it. An opener that names no subject
-("continue the session") gets `unknown` back, which is not a failure: the call
-repeats when the next prompt arrives (2026-10-20; the 2026-10-06 rule of
-waiting for three prompts left one-task sessions on the cwd basename for
-hours). Persisted to `~/.claude/sessions/<sid>.deckname`, never changed for the
-session's life, and kept past SessionEnd so a plain `claude --resume` (same
-sid) reclaims it; dormant sidecars age out after 30 days dead. Until then the key shows the cwd
-basename. Resumed sessions whose truncated events log has no substantial
-prompt yet are named from the transcript's original first prompt
-(`readFirstUserPrompt` in `transcript-title.ts`). The namer runs from a
-**sentinel cwd** (`~/.claude/deck-namer`) that
-`sessions.ts` filters out — its own headless session would otherwise occupy a
-slot and recursively trigger naming.
+context — its first human prompt of 3+ words AND the assistant's first text
+reply to it, or 90 s after the prompt when no reply has come (`namingReady`,
+2026-10-31) — a single headless `claude -p --model sonnet` call picks one
+distinguishing lowercase word, or two short ones (`herdr-upgrade`) when one
+cannot name it. The context is mined from the transcript
+(`readNamingContext` in `transcript-title.ts`, an incremental scan that
+resumes at the last line boundary — the first reply sits 240–560 KB in,
+behind the CLAUDE.md and memory attachment entries, so no head chunk
+reaches it): the full first prompt (up to 1500 chars; the hook's events
+clip at 200), the reply (800), two later prompts (300 each). The reply is what makes the word good: the first prompt
+is voice-dictated, and Claude Code's own `aiTitle` has not been written
+since `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` (2026-07-31) — the namer sees
+no title. An opener that names no subject ("continue the session") gets
+`unknown` back, which is not a failure: the call repeats when the next
+prompt arrives (2026-10-20; the 2026-10-06 rule of waiting for three
+prompts left one-task sessions on the cwd basename for hours). An answer
+the policy refuses (`rejectionReason`: generic, broad, taken, or outside
+`DECK_WORD_RE`'s one-or-two tokens / 20 chars) is asked again with that
+reason, and the second answer is clipped to fit (`clipWord`) rather than
+dropped — three identical re-asks of `cone-visualization` once left a
+session bare. Persisted to `~/.claude/sessions/<sid>.deckname`, never
+changed for the session's life (Ehsan's call, reaffirmed 2026-10-31: a word
+chosen once, a minute late, over a quick word that changes), and kept past
+SessionEnd so a plain `claude --resume` (same sid) reclaims it; dormant
+sidecars age out after 30 days dead. Until then the key shows the cwd
+basename. The namer runs from a **sentinel cwd** (`~/.claude/deck-namer`)
+that `sessions.ts` filters out — its own headless session would otherwise
+occupy a slot and recursively trigger naming.
 
 **Attention flash** (`state-tracker.ts`). A busy → needs-you transition
 (idle/awaiting/permission/plan/question/error) arms a per-session flag; the
@@ -221,8 +233,9 @@ which is indistinguishable from "the key did nothing", so `openAgentTab` logs
 
 **Hook additions** (`hooks/notification.sh`): stamps `transcript_path` and the
 terminal kind at SessionStart, clips each `UserPromptSubmit` prompt (200
-chars) so the reducer can capture the session's first substantial prompt for
-naming context. The `.deckname` sidecar survives SessionEnd for resume.
+chars) so the reducer knows a substantial prompt exists and when; the
+namer's text comes from the transcript. The `.deckname` sidecar survives
+SessionEnd for resume.
 
 **The Codex bridge records only tty-backed sessions**
 (`hooks/codex-notification.sh`, 2026-08-21). SessionStart requires the resolved

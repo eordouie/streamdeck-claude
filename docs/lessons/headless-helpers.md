@@ -95,3 +95,54 @@ gave up on the session. Now: one word of 3-16, or two short ones joined by a
 hyphen (`DECK_WORD_RE`), and the prompt offers the hyphen outright. First live
 run after the change: `asphalt-siting`, `bambu-printer`, `austin-lighthouse`
 within 8 s for the three stuck sessions.
+
+## The namer's input was 200 characters of dictation, and its shape rule threw away good answers (2026-10-31)
+
+Two findings from the plugin log (2026-10-19 … 10-31, 50 words assigned),
+log `docs/log/2026-10-31-deck-naming-quality.md`:
+
+- **Missing words came from the shape rule, not the model.** `DECK_WORD_RE`
+  refused `cone-visualization`, `hotel-reimbursement`, `amt-3921` and
+  `az-el` (second part over 11 letters, a digit first, a part under 3
+  letters); the namer re-sent the IDENTICAL prompt, got the same answer three
+  times, and gave up — three sessions never got a word. Every refused label
+  was fine. A validator that can refuse a model's answer needs two things:
+  the re-ask must carry the reason (`rejectionReason`), and the last resort
+  must be a clipped answer (`clipWord`), never silence.
+- **Poor words came from thin input.** The namer saw the hook's 200-char
+  clip of a voice-dictated prompt and an empty "Session title": Claude Code
+  has written no `aiTitle` into any real transcript since
+  `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` (9 of 393 recent transcripts have
+  one — all the namer's own headless sessions, which run without that env).
+  So Handy's `heresder` became `headersd`. The assistant's first reply
+  restates the request in clean words ("Reading the herdr evaluation
+  log…"); measured with one call each from the sentinel cwd:
+
+  | Session | Sonnet, 200-char clip | Sonnet, full prompt + reply |
+  |---|---|---|
+  | herdr review | `heresder` | `herdr upgrade` |
+  | Performance-tab visibility | `view-toggle` | `source visibility` |
+  | receiver STEP files | `report-update` | `crucible report` |
+  | this plugin's tab naming | `tabnaming` | `tab labeling` |
+
+  Opus gave the same words at rich context and copied the mis-hearing at
+  thin context (`heresder-upgrade`), so the model stays Sonnet; the context
+  is what moved. "Reply with ONE word" also glued pairs together
+  (`viewvisibility`, `channelupdates`, `weeklyupdate`); the prompt now asks
+  for one or two words separated by a space and the plugin hyphenates.
+
+Readiness therefore waits for the reply (`NAMING_REPLY_WAIT_MS` = 90 s cap);
+Ehsan chose the minute's wait over a provisional word that changes.
+
+**The reply is not in the transcript head.** The first build read a 256 KB
+head chunk, like the title reader, and the first live run after it named
+at the 90 s cap although the reply had landed at 29 s. Measured over twelve
+transcripts: the first prompt starts at byte ~1500, the first assistant
+text at 240–560 KB, with 22–31 entries between them — the CLAUDE.md,
+memory and skill attachments Claude Code injects after the prompt. The
+miner is now an incremental scan (resume at the last complete line; a
+complete context is final). A transcript's shape is not the shape of the
+conversation: measure offsets before sizing a chunk.
+Generalisation: **when a headless helper names or judges a conversation,
+give it the first exchange, not the first message** — the reply is the
+cleanest statement of what the conversation is about.
