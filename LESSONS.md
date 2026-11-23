@@ -250,4 +250,8 @@ run those two on a branch, archive the commit into a private folder with a
 
     t=$(mktemp -d); mkdir "$t/plugin"; git archive HEAD | tar -x -C "$t/plugin"
     ln -s "$PWD/node_modules" "$t/plugin/node_modules"; ln -s ~/Projects/dotfiles "$t/dotfiles"
-    (cd "$t/plugin" && pnpm test)
+    (cd "$t/plugin" && node_modules/.bin/tsx --test src/*.test.ts src/herdr-deck/*.test.ts)
+
+Call `tsx` directly there. `pnpm test` in a folder whose `node_modules` is a
+symlink makes pnpm 11 start an install and try to purge the folder; without a
+terminal it aborts with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`.

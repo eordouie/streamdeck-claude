@@ -1,9 +1,9 @@
 # Herdr agent deck: effort log
 
-> **Status:** PLANNING 2026-11-23. All 28 animals are drawn and committed (19 of the agreed 20, plus a lion where the triceratops failed; a butterfly is a finished spare). The plan is in Codex crossfire: round 03 frozen, round 04 with Codex. No deck behaviour has changed yet: the Stream Deck app still runs the old plugin and the old layout.
+> **Status:** BUILT, NOT YET ON THE DECK 2026-11-23. Ehsan's go: "I agree with all, go" (lion accepted, three lesson notes approved). The plan closed after six crossfire rounds. Plan Tasks 1 to 10 and the demo script are committed on `feat/herdr-agent-deck` in both repos; the full suite passes (257 tests, 101 of them new), the bundle builds and Elgato's validator accepts it; dotfiles passes 844 tests and its drift check. The Stream Deck app still runs the old plugin and the old layout.
 > **Last updated:** 2026-11-23
-> **Next step:** Fold Codex's round 04 until two clean rounds in a row, then show Ehsan the plan and the animal gallery and wait for his go before building the deck engine (plan Tasks 2 to 13).
-> **Open questions:** For Ehsan: the lion in the triceratops's place, yes or which animal instead? At the hardware step: split of a long project name ("raytracer" above, "engine" below) or the whole name scrolling? Technical: does herdr keep pane ids across a server restart (the animal memory falls back to the session id either way)? Does the Stream Deck app hold 14 keys redrawing at 8 frames a second without lag (v1 ran 8)?
+> **Next step:** Plan Task 11 from Step 2: with Ehsan at the deck and on his go, start the demo job, quit Stream Deck, stage the backup and links, apply the layout, and let him look and press. Then Task 12 (live) and Task 13 (docs, PRs; the plugin PR needs his merge).
+> **Open questions:** At the hardware step: split of a long project name ("raytracer" above, "engine" below) or the whole name scrolling? Does Ghostty come forward on the right terminal on a press (`focus (terminal id ...)`)? Does the Stream Deck app hold 14 keys redrawing at 8 frames a second (v1 ran 8)? Technical: does herdr keep pane ids across a server restart (the animal memory falls back to the session id either way)?
 
 ## What this is
 
@@ -68,6 +68,24 @@ Commits: 5286b54 (kit and sheet script), 63785f3 (animals, roster, test, gallery
 | 01 | Claude Fable 5.2, max | Draft. Every code block run in a throwaway copy before freezing: 92 tests, build and validator clean. |
 | 02 | Codex GPT-6.2-Astra, max, 31 min, 10 % of the weekly allowance | Fixed 14 key positions instead of counting keys as they appear; a press checks the pane still holds the same session before the one focus command; the terminal is matched as the single foreground `herdr` viewer; animal memory keyed by session first; malformed snapshots rejected; the demo isolated on a private socket with its own selector; a backup of the profile page and the three plugin links before the cutover; a blocked agent keeps its animal inside the orange pulse. |
 | 03 | Claude Fable 5.2, max | Verified round 02's claims on the machine. Reversed two of its changes (long names split at the hyphen as Ehsan was shown; a key keeps its place through a blip shorter than one poll). Recorded the triceratops outcome. The agent drives the demo, Ehsan only looks and presses. 100 tests. |
+
+## Build (2026-11-23)
+
+| Plan task | Commit (plugin repo unless noted) |
+|---|---|
+| 2 text lines, blocked state | e19e846 |
+| 3 herdr client, stand-in, model | 11619b8 |
+| 4 settle, rank, press | 60f637b |
+| 5 key words | 25351a7 |
+| 6 animal memory | 1c0a703 |
+| 7 pages, tracker | ab653c6 |
+| 8 jump | 9a43c1d |
+| 9 plugin, manifest, build | 1e41f36 |
+| 10 layout tool, cutover helper, setup notes | dotfiles b964ef6, 7af9fde |
+| 11 step 1 demo script | d2a16a6 |
+| lessons | f122038 |
+
+One correction after the relay closed: the plan's sibling-layout test command ran `pnpm test` in a folder with a symlinked `node_modules`; pnpm 11 started an install and tried to purge the folder. The plan and LESSONS.md now call `tsx`, `rollup` and `streamdeck validate` directly.
 
 ## Files
 
