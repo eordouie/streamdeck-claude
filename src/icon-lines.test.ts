@@ -23,3 +23,16 @@ test("without lines the label still splits at the hyphen and the provider label 
   const svg = renderIcon({ state: "idle", slot: 1, label: "asphalt-siting", providerLabel: "codex", frame: 0, now: 0 });
   assert.deepEqual(texts(svg), ["asphalt", "siting", "codex"]);
 });
+
+test("every text line is painted before the frame, so the frame's rounded corners cover a long or scrolling line", () => {
+  const svg = renderIcon({
+    state: "idle", slot: 1, label: "", frame: 0, now: 0,
+    lines: { top: "herdr", line1: "customization", line2: "codex" },
+  });
+  const frame = svg.indexOf('stroke-linejoin="round"');
+  assert.ok(frame > 0, "the key has a frame");
+  for (const word of ["herdr", "customization", "codex"]) {
+    const at = svg.indexOf(`>${word}<`);
+    assert.ok(at > 0 && at < frame, `"${word}" comes before the frame in paint order`);
+  }
+});

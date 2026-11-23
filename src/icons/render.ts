@@ -213,8 +213,11 @@ export function renderIcon({ state, slot, label, providerLabel, lines, frame = 0
   // The border is painted AFTER the motif so a motif that runs to the edge
   // (the walking mascot) passes *behind* the frame instead of over it — which
   // is the effect we want anyway, and is pure paint order rather than a
-  // renderer feature. Nothing else reaches the frame, so every other state
-  // looks identical either way.
+  // renderer feature. The text lines are painted before it for the same
+  // reason: a long or scrolling line on the lowest row reaches the frame's
+  // rounded corners, and it must pass behind them, not over them (the
+  // owner's correction on the herdr deck, 2026-11-23). They stay above the
+  // motif, so a walking mascot still passes under the words.
   const border = `<rect x="${BORDER_INSET}" y="${BORDER_INSET}" width="${BORDER_SIZE}" height="${BORDER_SIZE}" rx="${BORDER_RADIUS}" fill="none" stroke="${borderStroke}" stroke-width="${BORDER_STROKE}" stroke-linejoin="round" opacity="${isEmpty ? "0.45" : "0.95"}"/>`;
   // …and a matte over the thin margin outside the frame, so the mascot is
   // hidden there too rather than leaking a sliver past the yellow. Skipped on
@@ -233,10 +236,10 @@ ${bgAgentsBadge}
 ${owedDot}
 ${topLine}
 <g transform="translate(0,${MOTIF_DY})">${STATES[state].motif(frame, accent, slot)}</g>
-${edgeMatte}
-${border}
 ${line1Svg}
 ${line2Svg}
+${edgeMatte}
+${border}
 ${todoColumn}
 </svg>`;
 }
