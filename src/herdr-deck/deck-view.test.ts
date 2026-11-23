@@ -78,7 +78,7 @@ test("the arrow key warns when an agent that needs him is on the other page", ()
 
 test("a key carries its agent's animal and words", () => {
   const ranked = [deckAgent({ paneId: "wA:p1", workspace: "hive-2.0" }), deckAgent({ paneId: "wB:p1", workspace: "git" })];
-  const keys = agentKeys(compose(ranked, 1, { mascots: { "wA:p1": { index: 12, sessionId: "" } }, words: new Map([["wA:p1", "codex"]]) }).keys);
+  const keys = agentKeys(compose(ranked, 1, { mascots: { "wA:p1": { index: 12, sessionId: "" } }, words: new Map([["wA:p1", ["codex"]]]) }).keys);
   assert.equal(keys[0].slot, 13);
   assert.deepEqual(keys[0].lines, { top: "hive-2.0", line1: "codex", line2: "" });
   assert.equal(keys.length, 1, "an unassigned animal cannot duplicate one already on a key");

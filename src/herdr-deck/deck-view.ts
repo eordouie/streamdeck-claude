@@ -50,7 +50,7 @@ export function composeDeck(input: {
   /** Agent keys on the deck. */
   perPage: number;
   mascots: MascotMemory;
-  words: ReadonlyMap<string, string>;
+  words: ReadonlyMap<string, readonly string[]>;
   /** When the deck saw each finished agent finish. */
   doneSince: ReadonlyMap<string, number>;
   now: number;
@@ -75,7 +75,7 @@ export function composeDeck(input: {
       sessionId: a.sessionId,
       state: a.status === "working" ? "working" : a.status === "blocked" ? "blocked" : "idle",
       slot: animal.index + 1,
-      lines: keyLines(a, words.get(a.paneId) ?? ""),
+      lines: keyLines(a, words.get(a.paneId) ?? []),
       attention: done && since !== undefined && now - since < FLASH_MS,
       awaitingReply: done,
     };
