@@ -29,6 +29,13 @@ interface StateDef {
   motif: MotifFn;
 }
 
+const AWAITING: StateDef = {
+  palette: { bg: "#1a1208", accent: "#f97316", label: "#fed7aa" },
+  animated: true,
+  pulseBg: true,
+  motif: awaitingPulse,
+};
+
 export const STATES = {
   // Working keeps the amber chrome but walks the slot's own mascot across the
   // tile instead of spinning an arc, so a busy key stays the character you
@@ -40,7 +47,8 @@ export const STATES = {
   // blink phase; see subagentWalk.
   subagent:      { palette: { bg: "#0f1115", accent: "#fbbf24", label: "#fde68a" }, animated: true,  pulseBg: false, motif: subagentWalk },
   idle:          { palette: { bg: "#0f1115", accent: "#3b82f6", label: "#bfdbfe" }, animated: true,  pulseBg: false, motif: slotCharacterIdle },
-  awaiting:            { palette: { bg: "#1a1208", accent: "#f97316", label: "#fed7aa" }, animated: true,  pulseBg: true,  motif: awaitingPulse },
+  awaiting:            AWAITING,
+  blocked:             { ...AWAITING, motif: slotCharacterIdle },
   awaiting_permission: { palette: { bg: "#1a1308", accent: "#f59e0b", label: "#fde68a" }, animated: true,  pulseBg: true,  motif: permissionPulse },
   awaiting_question:   { palette: { bg: "#08191c", accent: "#06b6d4", label: "#a5f3fc" }, animated: true,  pulseBg: true,  motif: questionPulse },
   awaiting_plan:       { palette: { bg: "#15102a", accent: "#a78bfa", label: "#ddd6fe" }, animated: true,  pulseBg: true,  motif: planPulse },

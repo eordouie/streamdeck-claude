@@ -30,6 +30,11 @@ export interface IconOptions {
    *  tag marks the EXCEPTION, and which provider goes bare is `untaggedAgent` in
    *  agent-config.ts, not a fact about Claude. */
   providerLabel?: string;
+  /** The key's text, decided by the caller: `top` above the motif, up to two
+   *  lines below it. When set, `label` is not split and `providerLabel` is not
+   *  drawn. The herdr deck uses this: its top line is a whole project name,
+   *  hyphens included. */
+  lines?: { top: string; line1?: string; line2?: string };
   /** Animation frame, 0..ANIMATION_FRAMES-1. */
   frame?: number;
   /** Wall-clock ms; used for marquee. Defaults to Date.now() if omitted. */
@@ -116,23 +121,26 @@ function renderOverflowBadge(count: number, accent: string, shifted: boolean): s
   return `<text x="${shifted ? 34 : 16}" y="22" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" font-weight="700" fill="${accent}" opacity="0.8" text-anchor="start">+${count}</text>`;
 }
 
-export function renderIcon({ state, slot, label, providerLabel, frame = 0, now, todos, attention, awaitingReply, overflow, bgAgents }: IconOptions): string {
+export function renderIcon({ state, slot, label, providerLabel, lines, frame = 0, now, todos, attention, awaitingReply, overflow, bgAgents }: IconOptions): string {
   const t = now ?? Date.now();
   const { bg, accent, label: labelColor } = STATES[state].palette;
   const flash = attention === true;
   const isEmpty = state === "empty";
+  const explicit = !isEmpty && lines !== undefined;
   const split = isEmpty
     ? { top: "free slot", line1: "", line2: "" }
-    : splitLabel(label);
+    : explicit
+      ? { top: lines.top, line1: lines.line1 ?? "", line2: lines.line2 ?? "" }
+      : splitLabel(label);
   const { top } = split;
 
   // The provider tag takes the lowest line. For a one-token label (the usual
   // case once a deck name is assigned) both bottom slots were empty, so this
   // costs nothing; for a multi-token label the remaining tokens collapse onto
-  // the line above rather than being dropped.
+  // the line above rather than being dropped. Explicit lines are drawn as given.
   const rest = [split.line1, split.line2].filter(Boolean).join("-");
-  const line1 = providerLabel ? rest : split.line1;
-  const line2 = providerLabel ? providerLabel : split.line2;
+  const line1 = !explicit && providerLabel ? rest : split.line1;
+  const line2 = !explicit && providerLabel ? providerLabel : split.line2;
 
   const topLine = textLine({
     text: top,
