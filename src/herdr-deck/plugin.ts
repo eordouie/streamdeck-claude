@@ -104,7 +104,10 @@ async function press(key: KeyAction): Promise<void> {
   }
   jumping = true;
   try {
-    if (await jumpTo(route, target, log, { isSelected: () => sameRoute(route, readRoute(CONFIG_DIR)) }) !== "jumped") await key.showAlert();
+    const result = await jumpTo(route, target, log, { isSelected: () => sameRoute(route, readRoute(CONFIG_DIR)) });
+    // One line per press: the only record of which agent a key meant when it was pressed.
+    log(`press: ${target.paneId} ${result}`);
+    if (result !== "jumped") await key.showAlert();
   } finally {
     jumping = false;
     void poll();
