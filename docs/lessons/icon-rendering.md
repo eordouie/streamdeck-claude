@@ -153,3 +153,12 @@ another on a key face.
 - **Blink pivot at negative y.** The inverse translate flips the sign: `translate(11.5 -0.5) scale(1 s) translate(-11.5 0.5)`. Writing `-0.5` twice drew the giraffe's eye one unit high.
 - **Translucent parts go in one `<g opacity>`.** Overlapping rects each carrying their own opacity stack darker where they overlap (the bee's wings).
 - **When a side view reads as a brick, turn the animal to face the viewer.** The frog and the octopus failed in profile and landed at once from the front. The kangaroo read as a tan wedge until the tail was separated from the haunch and a joey put in the pouch; the triceratops read as a maned animal, then as a moose, in two concepts and ten rounds, and was replaced by a lion.
+
+## Text lines are painted before the frame (2026-11-23)
+
+`renderIcon` used to paint the two lower text lines after the border. A short
+centred word never reached the frame, so nobody saw it; the herdr deck's long
+and scrolling words on the lowest row did, and were drawn over the rounded
+corners. The lines are now painted after the motif and before the edge matte
+and the border, like the top line: they pass behind the corners and stay above
+a walking mascot. `src/icon-lines.test.ts` holds the order.

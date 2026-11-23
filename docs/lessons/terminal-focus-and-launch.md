@@ -150,3 +150,11 @@ Two mechanics measured while testing:
 - `select tab t` + `activate window w` on a tab found by `id` answers in
   0.19 s and is the empty-key press path (`selectTabById`).
 
+## AppleScript `activate` from the Stream Deck app's child is not honoured (2026-11-23)
+
+The herdr deck's first jump selected the right Ghostty terminal with
+`focus (terminal id ...)`, then sent `activate` inside the same `tell` block.
+The script returned `OK`, the plugin logged no failure, and Ghostty stayed
+behind the app in front. The old plugin's `open -b com.mitchellh.ghostty`
+brings it forward. Order matters: select the terminal first, and run `open -b`
+only after exactly one terminal matched, so a miss raises nothing.

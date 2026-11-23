@@ -9,6 +9,57 @@
 
 Each running `claude` CLI session lights up one key on your deck — project name, current state, animated when it's working, pulsing when it needs you. Press a key to copy the session's `cwd` to your clipboard and, when possible, bring its terminal to the foreground.
 
+## Herdr agent deck (second plugin, since 2026-11-23)
+
+This repo holds two Stream Deck plugins. The one linked on the author's deck is
+`com.eordouie.herdrdeck`: it shows the agents of a running
+[herdr](https://herdr.dev) session, Claude and Codex alike, and reads nothing
+but herdr's socket. The older `com.julien.claudesessions` plugin described in
+the rest of this file (one key per Claude session, found through Ghostty tabs
+and hooks) cannot see agents inside herdr and is no longer linked.
+
+| On a key | Meaning |
+|---|---|
+| Top line | The project: the herdr workspace name. A name over 11 characters breaks at its hyphen and continues below the animal. |
+| Animal | One of 28, a different one for every agent on the deck. An agent keeps its animal when it moves to another key or page. |
+| Lower lines | Only where two agents share a project: the tab name, or `claude` / `codex`, or both when a tab holds one of each. |
+| Walks on amber | Working. |
+| Rests on blue | Idle. |
+| Pulses orange, animal visible | Blocked: the agent is waiting for you. |
+| Flashes for a minute, then a white corner dot | Finished and not looked at yet. The dot goes when you look at the agent in herdr. |
+
+The 14 agent keys are filled in reading order: blocked agents first, then
+working, then finished, then idle; inside a group the agent that entered it
+last comes first. A turn that ends must stay ended for 4 s before the deck
+believes it, because a Codex agent reports "done" for a second or two between
+steps. The bottom-right key is the arrow: it flips between two pages (28
+agents) and shows `+N` only when N agents have no key at all.
+
+A press shows that agent in herdr (workspace, tab and pane) and brings the
+Ghostty terminal that runs herdr to the front. With herdr not running the keys
+are empty frames and the arrow key reads "herdr off".
+
+Files under `~/.config/herdr-deck/`: `state.json` (which agent has which
+animal), optional `config.json` (`socketPath` and `clientTty` for a herdr
+session other than the default), `reload` (touched by `pnpm deck:reload`),
+`before-herdr.json` (the deck as it was before the switch, for rollback) and,
+while a demo runs, the `demo-active` link.
+
+```bash
+pnpm build:deck        # bundle com.eordouie.herdrdeck.sdPlugin/bin/plugin.js
+pnpm deck:validate     # Elgato's manifest validator
+pnpm deck:link         # symlink the plugin into the Stream Deck app
+pnpm deck:reload       # restart the running plugin after a build
+pnpm deck:demo         # drive the deck from a stand-in herdr with 30 agents
+pnpm deck:live         # back from the demo to the real herdr
+pnpm mascots:gallery   # animated page of all 28 animals
+```
+
+The key layout lives in `~/Projects/dotfiles/streamdeck/layout.toml`; setup
+and rollback are in `~/Projects/dotfiles/streamdeck/SETUP.md`. To relink the
+older plugin: `pnpm build && pnpm sd:link`, a layout that places its `slot`
+keys, and `apply-layout.sh`.
+
 ## Fork: macOS + Ghostty (eordouie)
 
 This fork targets **macOS + [Ghostty](https://ghostty.org)** and adds, on top
