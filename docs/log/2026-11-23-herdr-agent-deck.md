@@ -1,9 +1,9 @@
 # Herdr agent deck: effort log
 
-> **Status:** BUILT, NOT YET ON THE DECK 2026-11-23. Ehsan's go: "I agree with all, go" (lion accepted, three lesson notes approved). The plan closed after six crossfire rounds. Plan Tasks 1 to 10 and the demo script are committed on `feat/herdr-agent-deck` in both repos; the full suite passes (257 tests, 101 of them new), the bundle builds and Elgato's validator accepts it; dotfiles passes 844 tests and its drift check. The Stream Deck app still runs the old plugin and the old layout.
+> **Status:** LIVE ON THE DECK 2026-11-23 18:09, from the feature worktree. The switch-over ran with Ehsan at the deck: the old plugin and deck-signals are unlinked, page 1 of the "Exowatt" profile is 14 agent keys and the arrow, and the plugin reads the real herdr. He confirmed the two pages, the names and the states on demo data, and Ghostty coming forward after a fix. Not yet confirmed by him: that a press lands on the right pane (the plugin now logs every press; the records so far agree). Not yet done: the app-restart check, the pull requests.
 > **Last updated:** 2026-11-23
-> **Next step:** Plan Task 11 from Step 2: with Ehsan at the deck and on his go, start the demo job, quit Stream Deck, stage the backup and links, apply the layout, and let him look and press. Then Task 12 (live) and Task 13 (docs, PRs; the plugin PR needs his merge).
-> **Open questions:** At the hardware step: split of a long project name ("raytracer" above, "engine" below) or the whole name scrolling? Does Ghostty come forward on the right terminal on a press (`focus (terminal id ...)`)? Does the Stream Deck app hold 14 keys redrawing at 8 frames a second (v1 ran 8)? Technical: does herdr keep pane ids across a server restart (the animal memory falls back to the session id either way)?
+> **Next step:** Match the plugin's `press:` lines against herdr's focused pane; ask Ehsan for the restart check; show him the `agent-workflow.md` draft; push both branches and open the PRs (the plugin PR needs his merge, then dotfiles under the grant); after the merges relink the plugin from the main checkout and remove the worktrees.
+> **Open questions:** Does herdr keep pane ids across a server restart (the animal memory falls back to the session id either way)?
 
 ## What this is
 
@@ -86,6 +86,31 @@ Commits: 5286b54 (kit and sheet script), 63785f3 (animals, roster, test, gallery
 | lessons | f122038 |
 
 One correction after the relay closed: the plan's sibling-layout test command ran `pnpm test` in a folder with a symlinked `node_modules`; pnpm 11 started an install and tried to purge the folder. The plan and LESSONS.md now call `tsx`, `rollup` and `streamdeck validate` directly.
+
+## Hardware step (2026-11-23, Ehsan at the deck)
+
+| Check | Result |
+|---|---|
+| Backup | `~/.config/herdr-deck/before-herdr.json` (page bytes, selected page, the three plugin links), written before any link changed |
+| Installed page | 14 agent actions and the pager at 4,2; verified from the profile, not the exit code |
+| Load, 14 keys animating | Stream Deck app 12.5 to 16.3 % of one core, the plugin's Node process 0.6 to 3 % |
+| Two pages, names, animals | Ehsan: yes |
+| States on demo data (working, needs-you, finished flash, dot, seen; arrow pulse) | Ehsan: "they all look correct". Log: working shown 0.7 s after the change, finished 4.9 s after the turn ended |
+| Press reaches the right agent | Four demo presses recorded by the stand-in as the key's agent |
+| Ghostty comes forward | Failed at first: AppleScript `activate` returned OK and did nothing. Fixed with `open -b` after the terminal is selected (0847652). Ehsan: "yes it comes front" |
+| Live key order | Equal to the ranking computed from herdr's snapshot: 23 agents, 23 distinct animals |
+
+Changes he asked for or that the hardware showed, each tested, rebuilt, reloaded and committed:
+
+| Change | Commit |
+|---|---|
+| The arrow's `+N` means one thing on both pages: agents with no key at all. He could not read `+16` and `+2` | 0701653 |
+| Ghostty forward with `open -b` | 0847652 |
+| Two tabs, each with a claude and a codex: the tab on one line, the kind on the next ("streamdeck" / "codex", not "streamdeck 2") | e7e4b32 |
+| Text lines painted behind the frame's corners ("make sure the banners are behind the corner edges") | b09af42 |
+| One log line per press | 18cea2a |
+
+He accepted the split of a long project name as shown (no objection at the look).
 
 ## Files
 
