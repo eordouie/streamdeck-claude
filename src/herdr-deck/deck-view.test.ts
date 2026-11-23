@@ -24,15 +24,15 @@ test("nineteen agents: fourteen on page 1, five on page 2", () => {
   const ranked = many(19);
   const p1 = compose(ranked, 1);
   assert.equal(agentKeys(p1.keys).length, 14);
-  assert.deepEqual(p1.pager, { page: 1, pages: 2, more: 5, alert: false, offline: false });
+  assert.deepEqual(p1.pager, { page: 1, pages: 2, more: 0, alert: false, offline: false });
   const p2 = compose(ranked, 2);
   assert.deepEqual(agentKeys(p2.keys).map((k) => k.paneId), ["w15:p1", "w16:p1", "w17:p1", "w18:p1", "w19:p1"]);
   assert.equal(p2.keys.length, 14);
   assert.deepEqual(p2.pager, { page: 2, pages: 2, more: 0, alert: false, offline: false });
 });
 
-test("beyond 28 agents the second page says how many have no key", () => {
-  assert.equal(compose(many(40), 1).pager.more, 26);
+test("beyond 28 agents both pages say how many have no key at all", () => {
+  assert.equal(compose(many(40), 1).pager.more, 12);
   assert.equal(compose(many(40), 2).pager.more, 12);
 });
 

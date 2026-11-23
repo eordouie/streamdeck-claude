@@ -27,7 +27,10 @@ export type KeyView = AgentKeyView | { kind: "empty" };
 export interface PagerView {
   page: number;
   pages: number;
-  /** Agents that have no key on this page: on page 1 those further down, on page 2 those beyond both pages. */
+  /** Agents that have no key on either page. The same on both pages: the old
+   *  deck's "+N" badge meant exactly this, and a count that mixed "on the next
+   *  page" with "nowhere on the deck" was the one thing the owner could not
+   *  read on the hardware (2026-11-23). */
   more: number;
   /** An agent that needs him is not on the page showing. */
   alert: boolean;
@@ -85,7 +88,7 @@ export function composeDeck(input: {
     pager: {
       page,
       pages,
-      more: Math.max(0, ranked.length - page * perPage),
+      more: Math.max(0, ranked.length - perPage * MAX_PAGES),
       alert: ranked.some((a) => a.status === "blocked" && !visible.has(a.paneId)),
       offline,
     },

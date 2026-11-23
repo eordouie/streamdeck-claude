@@ -39,8 +39,10 @@ export function agentKeySvg(view: AgentKeyView, frame: number, now: number): str
 /** A key with no agent: a dim frame. It opens nothing, so it says nothing. */
 export const emptyKeySvg = (): string => framed("", DIM, 0.35);
 
-/** The arrow key. Page 1: an arrow forward, how many agents are further
- *  down, "1/2". Page 2: a back arrow and the number beyond both pages, or "back" if zero. One page: a dim arrow. No herdr: "herdr off". */
+/** The arrow key. Page 1: an arrow forward and "1/2". Page 2: an arrow back,
+ *  "2/2", and the word "back". On either page "+N" stands on top instead when
+ *  N agents have no key on the deck at all. One page: a dim arrow. No herdr:
+ *  "herdr off". */
 export function pagerKeySvg(view: PagerView, frame: number): string {
   if (view.offline) return framed(word(68, "herdr", 19, "#6b7280") + word(92, "off", 19, "#6b7280"), DIM, 0.35);
   if (view.pages < 2) return framed(`<path d="M54 46 L100 76 L54 106 Z" fill="${DIM}" opacity="0.6"/>`, DIM, 0.35);
