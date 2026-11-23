@@ -3,6 +3,7 @@ import { DEFAULT_SOCKET, focusAgent, HerdrError, readSnapshot } from "./herdr-cl
 import type { Target } from "./press.js";
 
 export type JumpResult = "jumped" | "gone" | "failed";
+const GHOSTTY_BUNDLE_ID = "com.mitchellh.ghostty";
 export interface Route {
   socketPath: string;
   liveSocket: string;
@@ -27,7 +28,9 @@ export function clientTtys(psOutput: string, clientTty?: string): string[] {
 }
 
 /** Ghostty 1.4's dictionary defines the application's terminals, their IDs
- *  and ttys, and focus(terminal). Collect matches before any focus operation. */
+ *  and ttys, and focus(terminal). Collect matches before any focus operation.
+ *  The script selects the terminal inside Ghostty and nothing more: bringing
+ *  the application forward is `open -b` in jumpTo. */
 export function raiseScript(ttys: readonly string[]): string {
   const wanted = `{${ttys.map(t => JSON.stringify(t)).join(", ")}}`;
   return `
@@ -44,7 +47,6 @@ tell application id "com.mitchellh.ghostty"
   end repeat
   if matchCount is not 1 then return "ERR:missing-or-ambiguous"
   focus (terminal id targetID)
-  activate
   return "OK"
 end tell`;
 }
@@ -77,7 +79,17 @@ export async function jumpTo(
   const ttys = ps.code === 0 && !ps.timedOut ? clientTtys(ps.stdout, route.clientTty) : [];
   if (ttys.length) {
     const result = await run("/usr/bin/osascript", ["-e", raiseScript(ttys)], { timeoutMs: 3000 });
-    if (result.code === 0 && !result.timedOut && result.stdout.trim() === "OK") return "jumped";
+    if (result.code === 0 && !result.timedOut && result.stdout.trim() === "OK") {
+      // The right terminal is now selected inside Ghostty. The application
+      // itself comes forward through LaunchServices: an AppleScript `activate`
+      // sent from the Stream Deck app's child returned without error and left
+      // Ghostty behind (hardware check, 2026-11-23). `open -b` is what the old
+      // plugin used, and it runs only after the one terminal was identified.
+      const front = await run("/usr/bin/open", ["-b", GHOSTTY_BUNDLE_ID], { timeoutMs: 3000 });
+      if (front.code === 0 && !front.timedOut) return "jumped";
+      log(`herdr focused and its terminal selected; bringing Ghostty forward failed: ${front.err || front.stderr.trim() || front.code}`);
+      return "failed";
+    }
     log(`herdr focused; Ghostty selection failed: ${result.err || result.stderr.trim() || result.stdout.trim() || result.code}`);
   } else {
     log("herdr focused; no matching foreground herdr viewer on a tty");

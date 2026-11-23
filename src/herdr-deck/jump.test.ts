@@ -30,7 +30,7 @@ test("the script selects exactly one matched Ghostty terminal", () => {
   const script = raiseScript(["/dev/ttys000", "/dev/ttys014"]);
   assert.match(script, /\{"\/dev\/ttys000", "\/dev\/ttys014"\}/);
   assert.ok(script.indexOf("if matchCount is not 1") < script.indexOf("focus (terminal id targetID)"));
-  assert.match(script, /activate/);
+  assert.doesNotMatch(script, /^\s*activate\s*$/m, "the application is brought forward by open -b, after the match");
 });
 
 test("a gone or replaced occupant receives no focus or application command", async () => {
@@ -60,7 +60,7 @@ test("one validated press focuses the fake once and raises through an injected c
   };
   try {
     assert.equal(await jumpTo(route(fake.socketPath), target, () => {}, { run }), "jumped");
-    assert.deepEqual(calls, ["/bin/ps", "/usr/bin/osascript"]);
+    assert.deepEqual(calls, ["/bin/ps", "/usr/bin/osascript", "/usr/bin/open"]);
   } finally { await fake.close(); }
 });
 
