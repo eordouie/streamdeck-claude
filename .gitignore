@@ -15,3 +15,7 @@ dist/
 
 # Local scratch: contact sheets, galleries, review evidence
 .cache/
+
+# The herdr deck's built bundle and its logs
+com.eordouie.herdrdeck.sdPlugin/bin/
+com.eordouie.herdrdeck.sdPlugin/logs/

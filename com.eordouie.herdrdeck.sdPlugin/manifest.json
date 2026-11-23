@@ -1,0 +1,61 @@
+{
+  "Name": "Herdr Agents",
+  "Version": "1.0.0.0",
+  "Author": "Ehsan Ordouie",
+  "Description": "One key per herdr agent, the most active first.",
+  "Category": "Herdr Agents",
+  "CategoryIcon": "imgs/plugin/category-icon",
+  "Icon": "imgs/plugin/marketplace",
+  "SDKVersion": 2,
+  "Software": {
+    "MinimumVersion": "6.5"
+  },
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "12"
+    }
+  ],
+  "Nodejs": {
+    "Version": "20",
+    "Debug": "enabled"
+  },
+  "CodePath": "bin/plugin.js",
+  "UUID": "com.eordouie.herdrdeck",
+  "Actions": [
+    {
+      "Name": "Herdr Agent",
+      "UUID": "com.eordouie.herdrdeck.agent",
+      "Icon": "imgs/actions/agent/icon",
+      "Tooltip": "One herdr agent. Press to jump to it.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "DisableAutomaticStates": true,
+      "States": [
+        {
+          "Image": "imgs/actions/agent/key",
+          "TitleAlignment": "middle",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Herdr Agents Page",
+      "UUID": "com.eordouie.herdrdeck.pager",
+      "Icon": "imgs/actions/pager/icon",
+      "Tooltip": "Switch between the two pages of agents.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "DisableAutomaticStates": true,
+      "States": [
+        {
+          "Image": "imgs/actions/pager/key",
+          "TitleAlignment": "middle",
+          "ShowTitle": false
+        }
+      ]
+    }
+  ]
+}
