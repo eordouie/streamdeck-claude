@@ -237,3 +237,17 @@ because upstream has no `ghostty-focus`. Every PR in this repo needs
 `env.ts` `assertResolved` expects rollup's build-time substitution.
 Verify the runtime checker with that env var set, or through the built
 plugin — never by bare ts-node/tsx import.
+
+## `pnpm test` in a worktree fails two Ghostty-launcher tests (2026-11-23)
+
+"no arguments means a bare tab, not a defaulted agent" and "Ghostty launcher
+waits for the new tab and fails closed on an unreadable baseline" read
+`../dotfiles/streamdeck/scripts/ghostty-new-agent.sh` relative to the repo
+root, and a worktree under `.claude/worktrees/` sits two folders deeper. Every
+other test passing is the clean result there; the main checkout passes all. To
+run those two on a branch, archive the commit into a private folder with a
+`dotfiles` symlink beside it:
+
+    t=$(mktemp -d); mkdir "$t/plugin"; git archive HEAD | tar -x -C "$t/plugin"
+    ln -s "$PWD/node_modules" "$t/plugin/node_modules"; ln -s ~/Projects/dotfiles "$t/dotfiles"
+    (cd "$t/plugin" && pnpm test)
