@@ -1,9 +1,9 @@
 # Herdr agent deck: effort log
 
-> **Status:** PLANNING 2026-11-23. Decisions below are Ehsan's. The plan is in Codex crossfire review; 20 new animals are being drawn. No deck behaviour has changed yet: the old plugin and the old layout are still what the Stream Deck app runs.
+> **Status:** PLANNING 2026-11-23. All 28 animals are drawn and committed (19 of the agreed 20, plus a lion where the triceratops failed; a butterfly is a finished spare). The plan is in Codex crossfire: round 03 frozen, round 04 with Codex. No deck behaviour has changed yet: the Stream Deck app still runs the old plugin and the old layout.
 > **Last updated:** 2026-11-23
-> **Next step:** Finish the crossfire rounds on `docs/plans/2026-11-23-herdr-agent-deck/plan.md` (main checkout), show Ehsan the animal sheet, then wait for his go before building the deck engine.
-> **Open questions:** Does herdr keep pane ids across a server restart (decides whether an agent keeps its animal after a reboot)? Does the Stream Deck app hold 14 keys redrawing at 8 frames a second without lag (v1 ran 8)?
+> **Next step:** Fold Codex's round 04 until two clean rounds in a row, then show Ehsan the plan and the animal gallery and wait for his go before building the deck engine (plan Tasks 2 to 13).
+> **Open questions:** For Ehsan: the lion in the triceratops's place, yes or which animal instead? At the hardware step: split of a long project name ("raytracer" above, "engine" below) or the whole name scrolling? Technical: does herdr keep pane ids across a server restart (the animal memory falls back to the session id either way)? Does the Stream Deck app hold 14 keys redrawing at 8 frames a second without lag (v1 ran 8)?
 
 ## What this is
 
@@ -46,6 +46,28 @@ Branch `feat/herdr-agent-deck`, worktree `.claude/worktrees/herdr-deck`.
 - Ghostty 1.4.0 reports each terminal's tty over AppleScript; the herdr view runs on `ttys000`. Ghostty's terminal title follows the focused workspace's name, so the title cannot identify the terminal; the tty can.
 - 19 agents were live across 14 workspaces.
 - The old plugin restarted with the app at 14:39. Its 8 keys show folder names and its naming call fails (35 failures in two minutes); it wrote no tab titles.
+
+## Animals (2026-11-23)
+
+Four drawing agents drew five each against `.cache/mascot-brief.md`, checking every change on a rendered contact sheet (`scripts/mascot-sheet.mjs`). Outcome:
+
+| Animal | Result |
+|---|---|
+| pterodactyl, giraffe, flamingo, penguin, snail, turtle, crocodile, frog, hedgehog, rabbit, pig, octopus, bee, ladybug, duckling, parrot, moose, sheep | Passed as drawn |
+| kangaroo | First concept read as a tan wedge at rest. Second concept passed: a joey in the pouch, the tail separated from the haunch, a long hind foot. |
+| triceratops | Failed twice in ten rendered rounds. First its frill read as a mane; redrawn teal with a standing frill and long brow horns it read as a moose or a ram. Dropped. |
+| lion | Drawn as the replacement; in the roster where the triceratops stood. Ehsan has not confirmed it yet. |
+| butterfly | Drawn as the second candidate; kept as `butterfly.ts` outside the roster, the first spare. |
+
+Commits: 5286b54 (kit and sheet script), 63785f3 (animals, roster, test, gallery), a8b1968 (test pins the original eight's order). The gallery is `.cache/mascot-gallery.html`.
+
+## Crossfire rounds
+
+| Round | By | What it changed |
+|---|---|---|
+| 01 | Claude Fable 5.2, max | Draft. Every code block run in a throwaway copy before freezing: 92 tests, build and validator clean. |
+| 02 | Codex GPT-6.2-Astra, max, 31 min, 10 % of the weekly allowance | Fixed 14 key positions instead of counting keys as they appear; a press checks the pane still holds the same session before the one focus command; the terminal is matched as the single foreground `herdr` viewer; animal memory keyed by session first; malformed snapshots rejected; the demo isolated on a private socket with its own selector; a backup of the profile page and the three plugin links before the cutover; a blocked agent keeps its animal inside the orange pulse. |
+| 03 | Claude Fable 5.2, max | Verified round 02's claims on the machine. Reversed two of its changes (long names split at the hyphen as Ehsan was shown; a key keeps its place through a blip shorter than one poll). Recorded the triceratops outcome. The agent drives the demo, Ehsan only looks and presses. 100 tests. |
 
 ## Files
 
