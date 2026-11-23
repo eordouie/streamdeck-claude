@@ -10,6 +10,10 @@ const NEW = [
 
 test("the roster holds 28 distinct animals, the original eight first", () => {
   assert.equal(MASCOTS.length, 28);
+  assert.deepEqual(MASCOTS.slice(0, 8).map(m => m.draw.name), [
+    "clawdIdleLook", "dinoIdleLook", "sauropodIdleLook", "gooseIdleLook",
+    "elephantIdleLook", "stegoIdleLook", "llamaIdleLook", "pandaIdleLook",
+  ]);
   assert.equal(new Set(MASCOTS.map((m) => m.draw)).size, 28);
   assert.deepEqual(MASCOTS.slice(8).map((m) => m.name), NEW);
 });
