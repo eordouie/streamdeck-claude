@@ -120,6 +120,48 @@ Both do exactly one thing: read the hook payload from stdin, extract `session_id
 
 The Windows hook is **not copied** — `scripts/install-hook.sh --target=windows` registers a PowerShell command that runs `hooks/notification.ps1` directly over `\\wsl.localhost\<distro>\…\hooks\notification.ps1`, so a single repo edit propagates to both sides. PID liveness handles the case where a CC process dies hard (no `SessionEnd`): the session disappears from display via `state-tracker.ts`'s `prevLiveIds` check, and orphan sidecars (event logs and `.deckname` files whose sid has no session file — sids are UUIDs and never reused) are removed by the grace-gated orphan sweep in `pruneDeadSessions` (`src/sessions.ts`).
 
+## Herdr agent deck (`src/herdr-deck/`)
+
+A second plugin, `com.eordouie.herdrdeck`, built by its own rollup config
+(`rollup.herdr-deck.config.mjs`) into `com.eordouie.herdrdeck.sdPlugin/`. It
+shares `src/icons/` and `src/spawn-capture.ts` with the plugin described above
+and nothing else: no session files, no hooks, no process scan, no tab titles.
+
+Every 500 ms one `session.snapshot` request goes to herdr's socket
+(`~/.config/herdr/herdr.sock`, one JSON line each way; the reply takes under a
+millisecond). The snapshot then passes through pure functions:
+
+| Step | File | What it does |
+|---|---|---|
+| Map | `model.ts` | Raw agents to `DeckAgent` (pane, terminal, kind, status, counter, workspace, tab, session). |
+| Settle | `settle.ts` | Holds the end of a turn back for 4 s; blocked and working apply at once. While the shown status is unchanged the agent keeps its place. |
+| Rank | `rank.ts` | blocked, working, done, idle; inside a group the latest entry first. |
+| Animals | `mascot-pool.ts` | One animal per agent that has a key, kept by session first and by pane second, saved in `state.json`. |
+| Words | `labels.ts` | Project name on top; the words below it only where agents share a project. |
+| Pages | `deck-view.ts` | Two pages of 14; the arrow key's view. |
+| State across polls | `tracker.ts` | The hold, the finish flash, the page showing, a 3 s grace before "herdr off". |
+| Draw | `key-svg.ts` | `renderIcon` for an agent key; an empty frame; the arrow. |
+
+The 14 agent keys are fixed positions (`row * 5 + column`, 0 to 13; position
+14 is the arrow), because the SDK announces keys one at a time and a count of
+announced keys is not a page size. Each key remembers the agent of the image
+last sent to it (`press.ts`), so a press means what the key showed, also for
+250 ms after a re-sort changed it.
+
+A press (`jump.ts`) reads a fresh snapshot, checks that the pane still holds
+the same terminal and session, sends one `agent.focus`, finds the single
+foreground `herdr` process on a tty, selects the Ghostty terminal on that tty
+by AppleScript, and brings Ghostty forward with `open -b`. The terminal is
+matched by tty because its title follows herdr's focused workspace. The plugin
+uses three herdr methods in all: `session.snapshot`, `ping` at start, and
+`agent.focus` on a press. It polls rather than subscribes because the next
+successful read always reconstructs the current state, with nothing to
+resubscribe after herdr restarts.
+
+`route.ts` decides which socket is read: herdr's default, the one named in
+`~/.config/herdr-deck/config.json`, or a stand-in while the `demo-active` link
+exists (`scripts/herdr-deck-demo.mjs`, `fake-herdr.ts`).
+
 ## Project layout
 
 ```

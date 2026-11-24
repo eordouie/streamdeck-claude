@@ -16,6 +16,7 @@ the area you are editing is not optional reading — check the table first.
 | `process-scan.ts`, liveness (per record, suspended processes), the kill path, provider parity, hook gating | [`docs/lessons/agent-process-identity.md`](docs/lessons/agent-process-identity.md) |
 | `src/icons/**` — motifs, mascots, animation phase, key-face text | [`docs/lessons/icon-rendering.md`](docs/lessons/icon-rendering.md) |
 | `deck-namer.ts` or any headless `claude -p` helper in this repo | [`docs/lessons/headless-helpers.md`](docs/lessons/headless-helpers.md) |
+| `src/herdr-deck/**`, anything that talks to herdr | the three herdr sections at the end of this file |
 
 What stays below: editing deck profiles, running the plugin from this
 working tree, owned tab identity, telling a TUI from plumbing, recorded
@@ -237,3 +238,47 @@ because upstream has no `ghostty-focus`. Every PR in this repo needs
 `env.ts` `assertResolved` expects rollup's build-time substitution.
 Verify the runtime checker with that env var set, or through the built
 plugin — never by bare ts-node/tsx import.
+
+## `pnpm test` in a worktree fails two Ghostty-launcher tests (2026-11-23)
+
+"no arguments means a bare tab, not a defaulted agent" and "Ghostty launcher
+waits for the new tab and fails closed on an unreadable baseline" read
+`../dotfiles/streamdeck/scripts/ghostty-new-agent.sh` relative to the repo
+root, and a worktree under `.claude/worktrees/` sits two folders deeper. Every
+other test passing is the clean result there; the main checkout passes all. To
+run those two on a branch, archive the commit into a private folder with a
+`dotfiles` symlink beside it:
+
+    t=$(mktemp -d); mkdir "$t/plugin"; git archive HEAD | tar -x -C "$t/plugin"
+    ln -s "$PWD/node_modules" "$t/plugin/node_modules"; ln -s ~/Projects/dotfiles "$t/dotfiles"
+    (cd "$t/plugin" && node_modules/.bin/tsx --test src/*.test.ts src/herdr-deck/*.test.ts)
+
+Call `tsx` directly there. `pnpm test` in a folder whose `node_modules` is a
+symlink makes pnpm 11 start an install and try to purge the folder; without a
+terminal it aborts with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`.
+
+## A herdr focus command moves the owner's live view (2026-11-23)
+
+While planning the herdr deck, a "harmless" `agent.focus` on the pane believed
+to be in front pulled Ehsan's herdr view from another workspace to this one
+for 20 s: the belief was 25 minutes old. `agent.focus`, `pane.focus`,
+`tab.focus` and `workspace.focus` are never probes. Test code that focuses
+against `src/herdr-deck/fake-herdr.ts`, or on the hardware with
+`pnpm deck:demo`, where every press goes to a stand-in.
+
+## herdr reports a Codex agent as done between two steps (2026-11-23)
+
+In 32 minutes of logged state changes three Codex agents went working, done,
+working within 1 to 2 s; every real end of a turn was followed by at least
+77 s of quiet. Anything that reacts to "finished" must wait: `HOLD_MS` in
+`settle.ts` is 4 s. A key also keeps its place while its shown status is
+unchanged, whatever herdr's counter did in between.
+
+## Ghostty's terminal title follows herdr's focused workspace (2026-11-23)
+
+The one Ghostty terminal that runs herdr was titled
+`<host>: <focused workspace>`, so the title changes whenever he moves and
+identifies nothing. Find herdr's terminal by tty: the foreground `herdr`
+process with no arguments is the viewer (`ps -axo tty=,stat=,ucomm=,command=`
+prints `ttys000 S+ herdr herdr`; the server has no tty), and Ghostty 1.4
+reports `tty` per terminal.

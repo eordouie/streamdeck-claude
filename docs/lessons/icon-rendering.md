@@ -144,3 +144,21 @@ This was nearly missed: a design discussion chose to *replace* the deck word
 with model+effort specifically to avoid shrinking text that was never going to
 shrink. Read `icons/theme.ts` before trading one piece of information for
 another on a key face.
+
+## Drawing a sprite: six things that bit while adding twenty animals (2026-11-23)
+
+- **No `rotate()` to tilt a sprite.** It blurs every pixel edge and leaves hairline seams across flat fills (the penguin's belly). Draw a lean in pixel steps: head one unit, chest half a unit, hips still.
+- **Same-colour rects that abut vertically show a seam at 72 px.** Every local unit edge lands on a half physical pixel (canvas y = 49 + 4y), and the breathing scale makes it worse. Overlap the rects by one unit. The originals show it too: T-Rex head, llama neck, panda head in its second pose.
+- **The offbeat bob breaks the height limit.** A sprite drawn up to local y = -3 reaches -3.5 on the bob and touches the name. Tall animals hold the head level on the offbeat, as the panda does.
+- **Blink pivot at negative y.** The inverse translate flips the sign: `translate(11.5 -0.5) scale(1 s) translate(-11.5 0.5)`. Writing `-0.5` twice drew the giraffe's eye one unit high.
+- **Translucent parts go in one `<g opacity>`.** Overlapping rects each carrying their own opacity stack darker where they overlap (the bee's wings).
+- **When a side view reads as a brick, turn the animal to face the viewer.** The frog and the octopus failed in profile and landed at once from the front. The kangaroo read as a tan wedge until the tail was separated from the haunch and a joey put in the pouch; the triceratops read as a maned animal, then as a moose, in two concepts and ten rounds, and was replaced by a lion.
+
+## Text lines are painted before the frame (2026-11-23)
+
+`renderIcon` used to paint the two lower text lines after the border. A short
+centred word never reached the frame, so nobody saw it; the herdr deck's long
+and scrolling words on the lowest row did, and were drawn over the rounded
+corners. The lines are now painted after the motif and before the edge matte
+and the border, like the top line: they pass behind the corners and stay above
+a walking mascot. `src/icon-lines.test.ts` holds the order.

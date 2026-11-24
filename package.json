@@ -6,7 +6,7 @@
   "description": "Stream Deck plugin showing live Claude Code CLI session states",
   "scripts": {
     "build": "rollup -c",
-    "test": "tsx --test src/*.test.ts",
+    "test": "tsx --test src/*.test.ts src/herdr-deck/*.test.ts",
     "watch": "rollup -c -w --watch.onEnd=\"bash scripts/reload-plugin.sh\"",
     "icons:render": "tsx scripts/render-icons.mjs",
     "icons:static": "node scripts/render-static-pngs.mjs",
@@ -23,6 +23,15 @@
     "sd:pack": "bash scripts/sd-cli.sh pack com.julien.claudesessions.sdPlugin --output dist/",
     "sd:dev": "bash scripts/sd-cli.sh dev",
     "sd:reload": "bash scripts/reload-plugin.sh",
+    "build:deck": "rollup -c rollup.herdr-deck.config.mjs",
+    "deck:pngs": "tsx scripts/render-herdr-deck-pngs.mjs",
+    "deck:validate": "bash scripts/sd-cli.sh validate com.eordouie.herdrdeck.sdPlugin",
+    "deck:link": "bash scripts/link-herdr-deck.sh",
+    "deck:reload": "mkdir -p ~/.config/herdr-deck && date +%s > ~/.config/herdr-deck/reload",
+    "deck:demo": "tsx scripts/herdr-deck-demo.mjs",
+    "deck:live": "tsx scripts/herdr-deck-demo.mjs --live",
+    "mascots:sheet": "tsx scripts/mascot-sheet.mjs",
+    "mascots:gallery": "node scripts/mascot-gallery.mjs",
     "drill": "tsx scripts/drill-states.ts"
   },
   "devDependencies": {

@@ -1,6 +1,9 @@
-/** Frame count of one motif-animation period. Re-exported from states.ts as the
- *  public name; defined here because the motif functions are its only consumers. */
-export const ANIMATION_FRAMES = 12;
+import { ANIMATION_FRAMES, BLINK_PERIOD_MS, blinkScaleY, type Mascot } from "./mascot-kit.js";
+import { NEW_MASCOTS } from "./mascots/index.js";
+
+/** Frame count of one motif-animation period, defined in mascot-kit.ts and
+ *  re-exported here under the name the render pipeline already imports. */
+export { ANIMATION_FRAMES };
 
 export function spinnerArc(frame: number, color: string): string {
   const cx = 72, cy = 60, r = 22;
@@ -129,37 +132,11 @@ ${legs}
  *  wall-clock). Blinks are phase-shifted per slot so the row doesn't blink
  *  in unison. Native palettes — like Clawd, the characters keep their own
  *  colors while the idle palette drives the chrome. */
-/** One key's character, and the two facts the motion code needs about it.
- *
- *  A mascot is a uniform `(frame, blinkPhaseMs)` function: the walking and
- *  subagent motifs drive those two channels independently of the slot, which
- *  is the only thing `slotCharacterIdle` derives them from — a family of the
- *  same character needs one sprite per member on its own phase.
- *
- *  Direction and foot line live here rather than in their own per-slot
- *  switches. They were three parallel `switch ((slot - 1) % 5)` blocks, which
- *  is a standing invitation to add a character to two of them and leave the
- *  third behind — a mascot that moonwalks, or a family whose babies hover. */
-type Mascot = {
-  draw: (frame: number, blinkPhaseMs: number) => string;
-  /** Travel direction. Every mascot walks the way it faces, or it moonwalks. */
-  dir: 1 | -1;
-  /** Key-space y of the shadow: the sprite's base translate + 60, since every
-   *  mascot draws its shadow at local y=15 under `scale(4)`. Clawd is the one
-   *  that sits higher. Babies are scaled about this line, so a family walks on
-   *  the same ground however small its members are. */
-  foot: number;
-  /** Baby sprite for the `subagent` family, when a small copy of `draw`
-   *  wouldn't read as the same animal's young — a hatchling with an adult's
-   *  full markings reads as "shrunk in a wash", not "young". No mascot needs
-   *  one right now (every current baby is believably just a small copy of
-   *  its parent, the elephant and llama's included), but the hen/chick and
-   *  cat/kitten pairs both needed it before those animals were replaced —
-   *  keep the field for whichever mascot needs it next. Defaults to `draw`. */
-  drawBaby?: (frame: number, blinkPhaseMs: number) => string;
-};
-
-const MASCOTS: Mascot[] = [
+/** The roster, in slot order: the original eight, then the herdr-deck animals
+ *  from `mascots/`. The `Mascot` contract itself is in mascot-kit.ts. Exported
+ *  so the contact-sheet script can append a candidate that is not in the
+ *  roster yet and render it through the real `renderIcon`. */
+export const MASCOTS: Mascot[] = [
   { draw: clawdIdleLook, dir: 1, foot: 85 },
   { draw: dinoIdleLook, dir: 1, foot: 95 },
   { draw: sauropodIdleLook, dir: -1, foot: 95 },
@@ -168,6 +145,7 @@ const MASCOTS: Mascot[] = [
   { draw: stegoIdleLook, dir: -1, foot: 95 },
   { draw: llamaIdleLook, dir: -1, foot: 95 },
   { draw: pandaIdleLook, dir: -1, foot: 95 },
+  ...NEW_MASCOTS,
 ];
 
 /** Every mascot sits this much lower than its own sprite geometry puts it,
@@ -326,14 +304,6 @@ export function subagentWalk(frame: number, _color: string, slot?: number): stri
   // distance, so the same legs cover more ground in proportionally more time.
   return dropped(traverse(family, FAMILY_W + FAMILY_TAILGAP, dir));
 }
-
-/** Blink cadence shared by every mascot: a quick ~150 ms closure every
- *  ~3.4 s — lively without being twitchy. */
-const BLINK_PERIOD_MS = 3400;
-const BLINK_CLOSED_MS = 150;
-
-const blinkScaleY = (phaseMs: number): string =>
-  (Date.now() + phaseMs) % BLINK_PERIOD_MS < BLINK_CLOSED_MS ? "0.1" : "1";
 
 /** The Chrome offline runner T-Rex, in green. Faces right; breathes from the
  *  hips up, legs planted. */

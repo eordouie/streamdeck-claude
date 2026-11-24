@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "com.eordouie.herdrdeck.sdPlugin/bin"
+  },
+  "include": ["src/herdr-deck/**/*.ts", "src/icons/**/*.ts"],
+  "exclude": ["src/**/*.test.ts", "src/herdr-deck/fixtures.ts"]
+}

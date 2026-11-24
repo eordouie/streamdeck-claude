@@ -30,6 +30,11 @@ export interface IconOptions {
    *  tag marks the EXCEPTION, and which provider goes bare is `untaggedAgent` in
    *  agent-config.ts, not a fact about Claude. */
   providerLabel?: string;
+  /** The key's text, decided by the caller: `top` above the motif, up to two
+   *  lines below it. When set, `label` is not split and `providerLabel` is not
+   *  drawn. The herdr deck uses this: its top line is a whole project name,
+   *  hyphens included. */
+  lines?: { top: string; line1?: string; line2?: string };
   /** Animation frame, 0..ANIMATION_FRAMES-1. */
   frame?: number;
   /** Wall-clock ms; used for marquee. Defaults to Date.now() if omitted. */
@@ -116,23 +121,26 @@ function renderOverflowBadge(count: number, accent: string, shifted: boolean): s
   return `<text x="${shifted ? 34 : 16}" y="22" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" font-weight="700" fill="${accent}" opacity="0.8" text-anchor="start">+${count}</text>`;
 }
 
-export function renderIcon({ state, slot, label, providerLabel, frame = 0, now, todos, attention, awaitingReply, overflow, bgAgents }: IconOptions): string {
+export function renderIcon({ state, slot, label, providerLabel, lines, frame = 0, now, todos, attention, awaitingReply, overflow, bgAgents }: IconOptions): string {
   const t = now ?? Date.now();
   const { bg, accent, label: labelColor } = STATES[state].palette;
   const flash = attention === true;
   const isEmpty = state === "empty";
+  const explicit = !isEmpty && lines !== undefined;
   const split = isEmpty
     ? { top: "free slot", line1: "", line2: "" }
-    : splitLabel(label);
+    : explicit
+      ? { top: lines.top, line1: lines.line1 ?? "", line2: lines.line2 ?? "" }
+      : splitLabel(label);
   const { top } = split;
 
   // The provider tag takes the lowest line. For a one-token label (the usual
   // case once a deck name is assigned) both bottom slots were empty, so this
   // costs nothing; for a multi-token label the remaining tokens collapse onto
-  // the line above rather than being dropped.
+  // the line above rather than being dropped. Explicit lines are drawn as given.
   const rest = [split.line1, split.line2].filter(Boolean).join("-");
-  const line1 = providerLabel ? rest : split.line1;
-  const line2 = providerLabel ? providerLabel : split.line2;
+  const line1 = !explicit && providerLabel ? rest : split.line1;
+  const line2 = !explicit && providerLabel ? providerLabel : split.line2;
 
   const topLine = textLine({
     text: top,
@@ -205,8 +213,11 @@ export function renderIcon({ state, slot, label, providerLabel, frame = 0, now, 
   // The border is painted AFTER the motif so a motif that runs to the edge
   // (the walking mascot) passes *behind* the frame instead of over it — which
   // is the effect we want anyway, and is pure paint order rather than a
-  // renderer feature. Nothing else reaches the frame, so every other state
-  // looks identical either way.
+  // renderer feature. The text lines are painted before it for the same
+  // reason: a long or scrolling line on the lowest row reaches the frame's
+  // rounded corners, and it must pass behind them, not over them (the
+  // owner's correction on the herdr deck, 2026-11-23). They stay above the
+  // motif, so a walking mascot still passes under the words.
   const border = `<rect x="${BORDER_INSET}" y="${BORDER_INSET}" width="${BORDER_SIZE}" height="${BORDER_SIZE}" rx="${BORDER_RADIUS}" fill="none" stroke="${borderStroke}" stroke-width="${BORDER_STROKE}" stroke-linejoin="round" opacity="${isEmpty ? "0.45" : "0.95"}"/>`;
   // …and a matte over the thin margin outside the frame, so the mascot is
   // hidden there too rather than leaking a sliver past the yellow. Skipped on
@@ -225,10 +236,10 @@ ${bgAgentsBadge}
 ${owedDot}
 ${topLine}
 <g transform="translate(0,${MOTIF_DY})">${STATES[state].motif(frame, accent, slot)}</g>
-${edgeMatte}
-${border}
 ${line1Svg}
 ${line2Svg}
+${edgeMatte}
+${border}
 ${todoColumn}
 </svg>`;
 }
